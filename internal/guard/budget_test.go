@@ -30,7 +30,8 @@ func (u upstream) vendorFile() string {
 	return "vendor/" + u.module + "/VENDOR.md"
 }
 
-// dependencyBudget names each outside project the repository carries a copy
+// The web compiler's build-only npm budget is checked in web/build.test.ts.
+// dependencyBudget names each outside Go project the repository carries a copy
 // of. A new entry is a decision, not a side effect of a build.
 var dependencyBudget = []upstream{
 	{module: "connectrpc.com/connect"},

@@ -1,8 +1,9 @@
-import { For, memo, Show, signal } from "@reactre/core";
+import { For, memo, Show } from "@reactre/core";
 import { map } from "@reactre/core/features/lists";
 
 import { Pill } from "../components/status.tsx";
 import { type BoardBy, type Lane, lanes as groupLanes, type Member, roleName } from "../model.ts";
+import { valueState } from "../state/value.ts";
 import { type App, store } from "../store.ts";
 
 const byKey = "herdsman.team-board";
@@ -13,7 +14,7 @@ function loadBy(): BoardBy {
     return "role";
   }
 }
-const [boardBy, setBoardBy] = signal(loadBy());
+const [boardBy, setBoardBy] = valueState(loadBy());
 
 export function MemberCard(props: { member: Member; app: App; role?: boolean }) {
   const sub = memo(() =>
@@ -68,7 +69,11 @@ export function MemberCard(props: { member: Member; app: App; role?: boolean }) 
 
 const boards: readonly { by: BoardBy; label: string; tip: string }[] = [
   { by: "role", label: "Role", tip: "A column for each role in the route" },
-  { by: "status", label: "Status", tip: "A column for each status; cards move as agents work" },
+  {
+    by: "status",
+    label: "Status",
+    tip: "A column for each status; cards move as agents work",
+  },
 ];
 
 function TeamLane(props: { lane: Lane; app: App; by: BoardBy }) {

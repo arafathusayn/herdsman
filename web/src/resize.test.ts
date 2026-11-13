@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import { clampWidth, navResizer } from "./resize.tsx";
 import { type FakeElement, installFakeDocument } from "./test-dom-core.ts";
+import { mount } from "./test-mount.ts";
 
 test("the panel width stays between its minimum and the room left", () => {
   expect(clampWidth(200, 900)).toBe(340);
@@ -13,8 +14,21 @@ test("the panel width stays between its minimum and the room left", () => {
 
 test("a resize handle has the markup the h() version had", () => {
   installFakeDocument();
+  document.body = document.createElement("body");
+  // The small DOM fixture does not implement DOMTokenList.
+  Object.defineProperty(document.body, "classList", {
+    value: {
+      toggle(name: string, on: boolean) {
+        const classes = new Set(document.body.className.split(/\s+/).filter(Boolean));
+        if (on) classes.add(name);
+        else classes.delete(name);
+        document.body.className = [...classes].join(" ");
+        return on;
+      },
+    },
+  });
   const col = document.createElement("aside");
-  const handle = navResizer(col) as unknown as FakeElement;
+  const handle = mount(() => navResizer(col)) as FakeElement;
   // The h() version set tabIndex as a property, which the browser reflects as tabindex.
   const attrs = handle.attributes.map((a) => `${a.name}=${a.value}`).sort();
   expect(handle.tagName).toBe("DIV");

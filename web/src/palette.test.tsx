@@ -126,6 +126,7 @@ test("palette: markup of the h() version, filtering and moving keep row nodes, a
   dispatch(input, "input");
   dispatch(elements(listbox)[0]!, "click"); // the row "prompt" left (rowC left with "zzz")
   input["value"] = "fix the tests";
+  dispatch(input, "input");
   dispatch(input, "keydown", { key: "Enter" });
   expect(sent).toEqual(["fix the tests"]);
   expect(paletteOpen()).toBe(false);

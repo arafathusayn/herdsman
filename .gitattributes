@@ -1,0 +1,2 @@
+web/vendor/oxc/** linguist-vendored
+web/vendor/oxc/**/*.node binary

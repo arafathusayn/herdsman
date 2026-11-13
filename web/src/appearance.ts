@@ -1,10 +1,9 @@
+import { blend, isDark, readable } from "./ansi.ts";
 // Terminal color schemes and code highlighting themes. Each one is a set of
 // CSS variables put on <html>; "Match app" removes them, so the defaults in
 // tokens.css follow the light or dark app theme. Each terminal scheme also
 // makes a whole app theme.
-import { signal } from "@reactre/core";
-
-import { blend, isDark, readable } from "./ansi.ts";
+import { valueState } from "./state/value.ts";
 export interface TermScheme {
   id: string;
   label: string;
@@ -619,7 +618,7 @@ export function codeVars(id: string): Record<string, string> {
 }
 
 const applied = { term: new Set<string>(), code: new Set<string>() };
-const [codeHighlighting, setCodeHighlighting] = signal(true);
+const [codeHighlighting, setCodeHighlighting] = valueState(true);
 
 function put(kind: "term" | "code", vars: Record<string, string>): void {
   const st = document.documentElement.style;

@@ -1,0 +1,66 @@
+[
+  {
+    "name": "oxc-parser",
+    "version": "0.156.0",
+    "url": "https://registry.npmjs.org/oxc-parser/-/oxc-parser-0.156.0.tgz",
+    "integrity": "sha512-7JhjgOfZjrIFJH5TlHrpRua864Si5GvwrPr5+eIRCY2sszhKXo6pyhP0HQKOGTtfO4UowwZ72XTGba0+lZphOQ==",
+    "gitHead": null,
+    "directory": "oxc-parser"
+  },
+  {
+    "name": "@oxc-project/types",
+    "version": "0.156.0",
+    "url": "https://registry.npmjs.org/@oxc-project/types/-/types-0.156.0.tgz",
+    "integrity": "sha512-1Duyg48TdJNdyhEB8Xn1L36bT9Pv6GUtlKjHxOys8xkaF/rQq3XJE+bAurSK/AgIz5mGFsb77cn9Pb20+WCScw==",
+    "gitHead": null,
+    "directory": "types"
+  },
+  {
+    "name": "@oxc-parser/binding-darwin-arm64",
+    "version": "0.156.0",
+    "url": "https://registry.npmjs.org/@oxc-parser/binding-darwin-arm64/-/binding-darwin-arm64-0.156.0.tgz",
+    "integrity": "sha512-6pGR5fUszM9M4eBBapqpGjCRJolFwuCldx8bRQjqXyM09cQysBTWVF2Ttg4UNJVxYSaw5RRINbveCOOCrsuGvA==",
+    "gitHead": null,
+    "directory": "binding-darwin-arm64"
+  },
+  {
+    "name": "@oxc-parser/binding-darwin-x64",
+    "version": "0.156.0",
+    "url": "https://registry.npmjs.org/@oxc-parser/binding-darwin-x64/-/binding-darwin-x64-0.156.0.tgz",
+    "integrity": "sha512-M9QghL7uCAqMKjYJv1rDGblfEvkeQu3QzTPd7Uwo16gG3uO7m9ikVQ9OL8FZTnKzU4vbCEby6kTlEkqN+JeEMA==",
+    "gitHead": null,
+    "directory": "binding-darwin-x64"
+  },
+  {
+    "name": "@oxc-parser/binding-linux-arm64-gnu",
+    "version": "0.156.0",
+    "url": "https://registry.npmjs.org/@oxc-parser/binding-linux-arm64-gnu/-/binding-linux-arm64-gnu-0.156.0.tgz",
+    "integrity": "sha512-mrQs5OdRiqKskRuWEORPKT6YGIFhrpVvCvL9hqVaIh60EzgR4qjPvSsV6hWZcOfyWHBTbdEvfnDJPh/eQlxPRQ==",
+    "gitHead": null,
+    "directory": "binding-linux-arm64-gnu"
+  },
+  {
+    "name": "@oxc-parser/binding-linux-arm64-musl",
+    "version": "0.156.0",
+    "url": "https://registry.npmjs.org/@oxc-parser/binding-linux-arm64-musl/-/binding-linux-arm64-musl-0.156.0.tgz",
+    "integrity": "sha512-ZtPqgCU3+wpU7dvX7YbaEiw71r0UdguzuPhcx4PIEZSs4XFqc6F5wXCtNdb6M7m3DMErlxrwosryoXrzYOY/Gg==",
+    "gitHead": null,
+    "directory": "binding-linux-arm64-musl"
+  },
+  {
+    "name": "@oxc-parser/binding-linux-x64-gnu",
+    "version": "0.156.0",
+    "url": "https://registry.npmjs.org/@oxc-parser/binding-linux-x64-gnu/-/binding-linux-x64-gnu-0.156.0.tgz",
+    "integrity": "sha512-jRfwpN4xKrsEpC+SgrUPY5k0mINYZn7aLrt22I3uQFoumiSgHgsLYgS9f84ntbkvSydH4HiwGuDa2b1XCHaJzw==",
+    "gitHead": null,
+    "directory": "binding-linux-x64-gnu"
+  },
+  {
+    "name": "@oxc-parser/binding-linux-x64-musl",
+    "version": "0.156.0",
+    "url": "https://registry.npmjs.org/@oxc-parser/binding-linux-x64-musl/-/binding-linux-x64-musl-0.156.0.tgz",
+    "integrity": "sha512-P/ajnypgLmxmuRRyCIZcp2o4lOwmCaXYH5+eqDTcCW+MCTI+csKSw/Zc6GB67jZoVa4ey3q1jXEt7S60adBEMQ==",
+    "gitHead": null,
+    "directory": "binding-linux-x64-musl"
+  }
+]

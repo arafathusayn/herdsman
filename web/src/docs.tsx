@@ -1,9 +1,14 @@
 // Static documentation remains readable without JavaScript. Its interactive controls are owned components.
-import { attach, effect, onCleanup, signal } from "@reactre/core";
+import { attach, effect, onCleanup } from "@reactre/core";
+import { createActor } from "@reactre/state";
 
 import { Icon } from "./components/icons.tsx";
 import { ThemeSwitch } from "./components/theme-switch.tsx";
 import { icons } from "./icons.ts";
+import { copyMachine } from "./state/copy.machine.ts";
+import { observeActor } from "./state/observe.ts";
+import { registerRequest } from "./state/request-service.ts";
+import { valueState } from "./state/value.ts";
 import { applyTheme, loadTheme } from "./ui.ts";
 
 function listen<T extends Event>(
@@ -18,7 +23,7 @@ function listen<T extends Event>(
 }
 
 function setupTheme(): void {
-  const [theme, setTheme] = signal(loadTheme());
+  const [theme, setTheme] = valueState(loadTheme());
   applyTheme(theme());
   const slot = document.getElementById("theme");
   if (!slot) return;
@@ -70,25 +75,23 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 function CopyCommands(props: { code: HTMLElement }) {
-  const [state, setState] = signal({ label: "Copy", done: false });
-  let timer = 0,
-    disposed = false;
-  onCleanup(() => {
-    disposed = true;
-    clearTimeout(timer);
-  });
-  const copy = async (): Promise<void> => {
+  const service = registerRequest(async (text) => String(await copyText(text)));
+  const actor = createActor(copyMachine, { input: { service: service.id } });
+  const snapshot = observeActor(actor).read;
+  onCleanup(service.dispose);
+  const state = () => {
+    const current = snapshot();
+    const done = current.state === "shown" && current.data.ok;
+    return { done, label: current.state === "shown" ? (done ? "Copied" : "Press ⌘C") : "Copy" };
+  };
+  const copy = (): void => {
     const text = (props.code.textContent ?? "")
       .split("\n")
       .filter((line) => !line.trimStart().startsWith("# "))
       .join("\n")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
-    const ok = await copyText(text);
-    if (disposed) return;
-    setState({ label: ok ? "Copied" : "Press ⌘C", done: ok });
-    clearTimeout(timer);
-    timer = window.setTimeout(() => setState({ label: "Copy", done: false }), 1600);
+    actor.send({ type: "copy", text });
   };
   return (
     <button
@@ -133,7 +136,7 @@ function setupAnchors(): void {
 
 type Menu = { open: () => void; close: () => void };
 function setupMenu(): Menu {
-  const [open, setOpen] = signal(false);
+  const [open, setOpen] = valueState(false);
   const toggle = document.querySelector<HTMLButtonElement>(".nav-toggle");
   const scrim = document.querySelector<HTMLElement>(".scrim");
   effect(() => {
@@ -165,7 +168,7 @@ function setupNav(menu: Menu): void {
       return [link, `${link.textContent ?? ""} ${section?.textContent ?? ""}`.toLowerCase()];
     }),
   );
-  const [query, setQuery] = signal(input?.value ?? "");
+  const [query, setQuery] = valueState(input?.value ?? "");
   effect(() => {
     const words = query().toLowerCase().split(/\s+/).filter(Boolean);
     let shown = 0;
@@ -199,7 +202,7 @@ function setupNav(menu: Menu): void {
   const sections = links
     .map((link) => document.getElementById(link.hash.slice(1)))
     .filter((section): section is HTMLElement => section !== null);
-  const [current, setCurrent] = signal<string | undefined>(undefined);
+  const [current, setCurrent] = valueState<string | undefined>(undefined);
   const mark = (): void => {
     let current = sections[0];
     for (const section of sections) if (section.getBoundingClientRect().top <= 96) current = section;
@@ -232,15 +235,18 @@ function setupNav(menu: Menu): void {
   mark();
 }
 
-/** ARIA tabs on the static page follow a selected-tab signal. */
+/** ARIA tabs on the static page project an actor-owned selected index. */
 function setupTabs(): void {
   for (const box of document.querySelectorAll<HTMLElement>("[data-tabs]")) {
     const tabs = [...box.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
-    const [selected, select] = signal(
-      tabs.find((tab) => tab.getAttribute("aria-selected") === "true") ?? tabs[0] ?? null,
+    const [selected, select] = valueState(
+      Math.max(
+        0,
+        tabs.findIndex((tab) => tab.getAttribute("aria-selected") === "true"),
+      ),
     );
     effect(() => {
-      const current = selected();
+      const current = tabs[selected()];
       for (const tab of tabs) {
         const active = tab === current;
         tab.setAttribute("aria-selected", String(active));
@@ -253,14 +259,14 @@ function setupTabs(): void {
     if (list) list.hidden = false;
     for (const title of box.querySelectorAll<HTMLElement>(".tab-title")) title.hidden = true;
     tabs.forEach((tab, index) => {
-      listen(tab, "click", () => select(tab));
+      listen(tab, "click", () => select(index));
       listen<KeyboardEvent>(tab, "keydown", (event) => {
         const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
         if (!step) return;
         event.preventDefault();
         const next = tabs[(index + step + tabs.length) % tabs.length];
         if (next) {
-          select(next);
+          select((index + step + tabs.length) % tabs.length);
           next.focus();
         }
       });

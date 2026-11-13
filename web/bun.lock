@@ -1,0 +1,38 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "herdsman-web-build",
+      "devDependencies": {
+        "oxc-parser": "file:vendor/oxc/oxc-parser",
+      },
+    },
+  },
+  "overrides": {
+    "@oxc-parser/binding-darwin-arm64": "file:vendor/oxc/binding-darwin-arm64",
+    "@oxc-parser/binding-darwin-x64": "file:vendor/oxc/binding-darwin-x64",
+    "@oxc-parser/binding-linux-arm64-gnu": "file:vendor/oxc/binding-linux-arm64-gnu",
+    "@oxc-parser/binding-linux-arm64-musl": "file:vendor/oxc/binding-linux-arm64-musl",
+    "@oxc-parser/binding-linux-x64-gnu": "file:vendor/oxc/binding-linux-x64-gnu",
+    "@oxc-parser/binding-linux-x64-musl": "file:vendor/oxc/binding-linux-x64-musl",
+    "@oxc-project/types": "file:vendor/oxc/types",
+  },
+  "packages": {
+    "oxc-parser": ["oxc-parser@file:vendor/oxc/oxc-parser", { "dependencies": { "@oxc-project/types": "^0.156.0" }, "optionalDependencies": { "@oxc-parser/binding-darwin-arm64": "0.156.0", "@oxc-parser/binding-darwin-x64": "0.156.0", "@oxc-parser/binding-linux-arm64-gnu": "0.156.0", "@oxc-parser/binding-linux-arm64-musl": "0.156.0", "@oxc-parser/binding-linux-x64-gnu": "0.156.0", "@oxc-parser/binding-linux-x64-musl": "0.156.0" } }],
+
+    "oxc-parser/@oxc-parser/binding-darwin-arm64": ["@oxc-parser/binding-darwin-arm64@file:vendor/oxc/binding-darwin-arm64", {}],
+
+    "oxc-parser/@oxc-parser/binding-darwin-x64": ["@oxc-parser/binding-darwin-x64@file:vendor/oxc/binding-darwin-x64", {}],
+
+    "oxc-parser/@oxc-parser/binding-linux-arm64-gnu": ["@oxc-parser/binding-linux-arm64-gnu@file:vendor/oxc/binding-linux-arm64-gnu", {}],
+
+    "oxc-parser/@oxc-parser/binding-linux-arm64-musl": ["@oxc-parser/binding-linux-arm64-musl@file:vendor/oxc/binding-linux-arm64-musl", {}],
+
+    "oxc-parser/@oxc-parser/binding-linux-x64-gnu": ["@oxc-parser/binding-linux-x64-gnu@file:vendor/oxc/binding-linux-x64-gnu", {}],
+
+    "oxc-parser/@oxc-parser/binding-linux-x64-musl": ["@oxc-parser/binding-linux-x64-musl@file:vendor/oxc/binding-linux-x64-musl", {}],
+
+    "oxc-parser/@oxc-project/types": ["@oxc-project/types@file:vendor/oxc/types", {}],
+  }
+}

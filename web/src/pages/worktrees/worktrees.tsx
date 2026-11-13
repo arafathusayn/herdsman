@@ -1,25 +1,23 @@
-import type { ResourcesResponse } from "@herdsman/sdk/herdsman/daemon/v1/ledger";
-import { For, Show, signal } from "@reactre/core";
+import { For, Show } from "@reactre/core";
 
 import { services } from "../../sdk/index.ts";
+import { createRequest } from "../../state/request.ts";
+import { valueState } from "../../state/value.ts";
 import { Failure, fieldValue, NotServed, PageFrame } from "../load.tsx";
 
 export function WorktreesPage() {
-  const [commonDir, setCommonDir] = signal("");
-  const [task, setTask] = signal("");
-  const [reply, setReply] = signal<ResourcesResponse | null>(null);
-  const [error, setError] = signal<unknown>(undefined);
-
+  const [commonDir, setCommonDir] = valueState("");
+  const [task, setTask] = valueState("");
+  const lookup = createRequest(async (input: { commonDir: string; task: string }, signal) =>
+    services().ledger.resources(input, { signal }),
+  );
+  const reply = () => lookup.data() ?? null;
+  const error = lookup.error;
   const look = async (event: Event) => {
     event.preventDefault();
-    setError(undefined);
-    setReply(null);
-    try {
-      const found = await services().ledger.resources({ commonDir: commonDir().trim(), task: task().trim() });
-      setReply(() => found);
-    } catch (failure) {
-      setError(() => failure);
-    }
+    if (!commonDir().trim() || !task().trim()) return;
+    lookup.clear();
+    await lookup.run({ commonDir: commonDir().trim(), task: task().trim() });
   };
 
   return (

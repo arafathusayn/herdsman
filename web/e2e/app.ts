@@ -186,6 +186,29 @@ async function frameAndNavigation(browser: Browser, mock: Mock, check: Check, er
   mock.setStatus("p1", "working");
   await sleep(100);
 
+  // Cached controller actors must survive the mounted tab's disposal.
+  const docsTab =
+    '.tabs .tab:is([title="Contracts, reports and notes in the route folder"], [data-tip="Contracts, reports and notes in the route folder"])';
+  const logTab =
+    '.tabs .tab:is([title="The orchestrator\'s run log, newest first"], [data-tip="The orchestrator\'s run log, newest first"])';
+  await page.click(docsTab);
+  await page.waitForSelector('input[aria-label="Search files"]');
+  await page.type('input[aria-label="Search files"]', "first-query");
+  await page.click(logTab);
+  await page.click(docsTab);
+  check(
+    "cached docs: filter survives tab exit",
+    (await page.$eval('input[aria-label="Search files"]', (input) => (input as HTMLInputElement).value)) ===
+      "first-query",
+  );
+  await page.type('input[aria-label="Search files"]', "-after-return");
+  await page.waitForFunction(
+    () => document.querySelector(".file-empty")?.textContent?.includes("first-query-after-return"),
+    { timeout: 2000 },
+  );
+  check("cached docs: actor remains editable after return", true);
+  await page.click(logTab);
+
   // Sidebar toggle.
   await page.click(".nav-toggle");
   await sleep(100);
@@ -219,7 +242,7 @@ async function frameAndNavigation(browser: Browser, mock: Mock, check: Check, er
   check("palette filters", rows.length > 0 && rows.every((r) => /togg/i.test(r ?? "")), JSON.stringify(rows));
   check("palette marks", (await page.$$eval(".palette-row mark", (es) => es.length)) > 0);
   await page.keyboard.press("Escape");
-  await sleep(50);
+  await page.waitForFunction(() => document.querySelector("dialog.palette") === null, { timeout: 2000 });
   check("palette closes", (await page.$("dialog.palette")) === null);
   // The app's shortcut is ⌘K on a Mac and Ctrl+K elsewhere (CI runs Linux).
   const mod = (await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)))

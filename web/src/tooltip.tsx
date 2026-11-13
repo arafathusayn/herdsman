@@ -1,6 +1,6 @@
-import { signal } from "@reactre/core";
-
 import { mountRoot } from "./components/mount-root.ts";
+import { lifetime } from "./state/lifetime.ts";
+import { valueState } from "./state/value.ts";
 
 // Delegate title discovery across app and modal roots. Reactre owns the
 // tooltip's content, visibility and placement; the installer owns listeners.
@@ -41,24 +41,30 @@ function tipText(el: HTMLElement): string {
 
 /** Installs delegated mouse/keyboard tooltips; the disposer removes every resource. */
 export function installTooltips(): () => void {
-  const [state, setState] = signal<TipState>({ text: "", on: false, below: false, top: 0, left: 0 });
+  const [state, setState] = valueState<TipState>({
+    text: "",
+    on: false,
+    below: false,
+    top: 0,
+    left: 0,
+  });
   let view: ReturnType<typeof mountRoot<"div">> | undefined;
   let target: HTMLElement | null = null;
-  let timer = 0,
-    warmUntil = 0,
-    stopped = false;
+  let timer = 0;
+  const [warmUntil, setWarmUntil] = valueState(0);
+  const life = lifetime();
   const hide = (): void => {
     window.clearTimeout(timer);
     if (target?.getAttribute("aria-describedby") === tipId) target.removeAttribute("aria-describedby");
     if (state().on) {
       setState({ ...state(), on: false });
-      warmUntil = Date.now() + warmFor;
+      setWarmUntil(Date.now() + warmFor);
     }
     target = null;
   };
   const show = (el: HTMLElement): void => {
     const text = tipText(el);
-    if (stopped || !text || !el.isConnected) return;
+    if (life.closed() || !text || !el.isConnected) return;
     view ??= mountRoot("div", () => <Tooltip state={state} />);
     setState({ ...state(), text });
     // A modal sits in the top layer; its tooltip must be inside that modal.
@@ -83,7 +89,7 @@ export function installTooltips(): () => void {
     hide();
     if (!tipText(el)) return;
     target = el;
-    timer = window.setTimeout(() => show(el), Date.now() < warmUntil ? 0 : delay);
+    timer = window.setTimeout(() => show(el), Date.now() < warmUntil() ? 0 : delay);
   };
   const listeners: (() => void)[] = [];
   const listen = <K extends keyof DocumentEventMap>(
@@ -116,8 +122,7 @@ export function installTooltips(): () => void {
     if (event.key === "Escape" && target) hide();
   });
   return () => {
-    if (stopped) return;
-    stopped = true;
+    if (!life.close()) return;
     hide();
     for (const remove of listeners) remove();
     view?.dispose();

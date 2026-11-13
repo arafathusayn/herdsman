@@ -1,7 +1,9 @@
-import type { RouteStart, UpRequest } from "@herdsman/sdk/herdsman/daemon/v1/route";
-import { Show, signal } from "@reactre/core";
+import type { UpRequest } from "@herdsman/sdk/herdsman/daemon/v1/route";
+import { Show } from "@reactre/core";
 
 import { explain, services } from "../../sdk/index.ts";
+import { createRequest } from "../../state/request.ts";
+import { valueState } from "../../state/value.ts";
 import { fieldValue, PageFrame } from "../load.tsx";
 
 export interface LaunchFields {
@@ -39,31 +41,30 @@ export function launchRequest(fields: LaunchFields): UpRequest {
     orchestratorKind: fields.orchestratorKind.trim(),
     ...(fields.noAdjutant
       ? { noAdjutant: true }
-      : { adjutantCommand: fields.adjutant.trim(), adjutantKind: fields.adjutantKind.trim() }),
+      : {
+          adjutantCommand: fields.adjutant.trim(),
+          adjutantKind: fields.adjutantKind.trim(),
+        }),
   };
 }
 
 export function NewRoutePage() {
-  const [route, setRoute] = signal("");
-  const [repo, setRepo] = signal("");
-  const [prompt, setPrompt] = signal("");
-  const [adjutant, setAdjutant] = signal("");
-  const [adjutantKind, setAdjutantKind] = signal("");
-  const [orchestrator, setOrchestrator] = signal("");
-  const [orchestratorKind, setOrchestratorKind] = signal("");
-  const [noAdjutant, setNoAdjutant] = signal(false);
-  const [plan, setPlan] = signal<RouteStart | null>(null);
-  const [problem, setProblem] = signal("");
-  const [busy, setBusy] = signal(false);
-
-  // Each edit or preview makes the replies still on their way out of date.
-  let revision = 0;
-  const invalidate = () => {
-    revision++;
-    setPlan(null);
-    setProblem("");
-    setBusy(false);
-  };
+  const [route, setRoute] = valueState("");
+  const [repo, setRepo] = valueState("");
+  const [prompt, setPrompt] = valueState("");
+  const [adjutant, setAdjutant] = valueState("");
+  const [adjutantKind, setAdjutantKind] = valueState("");
+  const [orchestrator, setOrchestrator] = valueState("");
+  const [orchestratorKind, setOrchestratorKind] = valueState("");
+  const [noAdjutant, setNoAdjutant] = valueState(false);
+  const previewRequest = createRequest(async (fields: LaunchFields, signal) => {
+    const reply = await services().routes.up({ ...launchRequest(fields), dryRun: true }, { signal });
+    return reply.start ?? null;
+  });
+  const plan = () => previewRequest.data() ?? null;
+  const problem = () => (previewRequest.error() === undefined ? "" : explain(previewRequest.error()));
+  const busy = previewRequest.loading;
+  const invalidate = previewRequest.clear;
   const edit = (set: (value: string) => void) => (event: Event) => {
     set(fieldValue(event));
     invalidate();
@@ -86,18 +87,8 @@ export function NewRoutePage() {
     (noAdjutant() || (!!adjutant().trim() && !!adjutantKind().trim()));
 
   const preview = async () => {
-    invalidate();
-    const mine = revision;
-    setBusy(true);
-    try {
-      const reply = await services().routes.up({ ...launchRequest(fields()), dryRun: true });
-      if (mine !== revision) return;
-      setPlan(() => reply.start ?? null);
-    } catch (error) {
-      if (mine !== revision) return;
-      setProblem(explain(error));
-    }
-    setBusy(false);
+    if (!ready() || busy()) return;
+    await previewRequest.run(fields());
   };
 
   return (

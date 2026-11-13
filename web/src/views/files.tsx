@@ -1,4 +1,4 @@
-import { batch, For, memo, onCleanup, Show, signal } from "@reactre/core";
+import { batch, For, memo, onCleanup, Show } from "@reactre/core";
 import { map } from "@reactre/core/features/lists";
 
 import { routeFile } from "../api.ts";
@@ -8,6 +8,9 @@ import { fuzzy } from "../fuzzy.ts";
 import { icons } from "../icons.ts";
 import { CodeBlock, Markdown } from "../markdown.tsx";
 import { ago } from "../model.ts";
+import { createRequest } from "../state/request.ts";
+import { valueState } from "../state/value.ts";
+import { errorMessage } from "../state/wire.ts";
 import { store } from "../store.ts";
 import type { Route, RouteFile } from "../types.ts";
 import { toast } from "../ui.ts";
@@ -44,51 +47,50 @@ export interface FilesState {
   retry: () => void;
   search: (input: HTMLInputElement | null) => void;
   focusSearch: () => void;
+  stop: () => void;
 }
 
 /** Data and local preferences persist for this route; components own its DOM. */
 export function createFilesState(routeId: string): FilesState {
-  const [state, setState] = signal<FilesSnapshot>({
+  const [local, setState] = valueState<Omit<FilesSnapshot, "text" | "status" | "error">>({
     route: null,
     selected: "",
     query: "",
     active: 0,
     raw: false,
-    text: "",
-    status: "empty",
-    error: "",
     open: new Map(),
   });
-  const set = (patch: Partial<FilesSnapshot>): void => setState((current) => ({ ...current, ...patch }));
+  const request = createRequest(async (input: { route: string; selected: string; modified: string }, signal) =>
+    routeFile(input.route, input.selected, signal),
+  );
+  const [requested, setRequested] = valueState("");
+  const state = (): FilesSnapshot => ({
+    ...local(),
+    text: request.data() ?? "",
+    status: request.loading()
+      ? "loading"
+      : request.error() !== undefined
+        ? "error"
+        : request.data() === undefined
+          ? "empty"
+          : "loaded",
+    error: request.error() === undefined ? "" : errorMessage(request.error()),
+  });
+  const set = (patch: Partial<Omit<FilesSnapshot, "text" | "status" | "error">>): void =>
+    setState((current) => ({ ...current, ...patch }));
   let search: HTMLInputElement | null = null;
-  let requested = "",
-    cached = "",
-    request = 0;
   const load = (): void => {
-    const current = state();
+    const current = local();
     const route = current.route;
     if (!route) return;
     const file = route.files?.find((file) => file.path === current.selected);
-    const key = JSON.stringify([route.id, current.selected, file?.modified ?? ""]);
-    if (requested === key) return;
-    requested = key;
-    const id = ++request;
-    if (key === cached) {
-      set({ status: "loaded", error: "" });
-      return;
-    }
-    set({ status: "loading", error: "" });
-    void routeFile(route.id, current.selected)
-      .then((text) => {
-        if (id !== request) return;
-        cached = key;
-        set({ text, status: "loaded" });
-      })
-      .catch((error: unknown) => {
-        if (id !== request) return;
-        requested = "";
-        set({ status: "error", error: error instanceof Error ? error.message : String(error) });
-      });
+    const input = { route: route.id, selected: current.selected, modified: String(file?.modified ?? "") };
+    const key = JSON.stringify(input);
+    if (requested() === key) return;
+    setRequested(key);
+    void request.run(input).then((outcome) => {
+      if (outcome.status === "failed") setRequested("");
+    });
   };
   return {
     routeId,
@@ -106,11 +108,15 @@ export function createFilesState(routeId: string): FilesState {
       if (state().open.get(folder) !== open) set({ open: new Map([...state().open, [folder, open]]) });
     },
     retry: () => {
-      requested = "";
+      setRequested("");
       load();
     },
     search: (input) => {
       search = input;
+    },
+    stop: () => {
+      request.cancel();
+      setRequested("");
     },
     focusSearch: () => {
       search?.focus();
@@ -189,7 +195,10 @@ function FileGroupView(props: { group: FileGroup; state: FilesState }) {
 }
 
 export function FilesView(props: { state: FilesState }) {
-  onCleanup(() => props.state.search(null));
+  onCleanup(() => {
+    props.state.search(null);
+    props.state.stop();
+  });
   const snapshot = props.state.state;
   const files = memo(() => snapshot().route?.files ?? []);
   const query = memo(() => snapshot().query.trim());
@@ -198,11 +207,20 @@ export function FilesView(props: { state: FilesState }) {
   const matches = memo(() =>
     files()
       .map((file) => ({ file, match: fuzzy(query(), file.path) }))
-      .filter((entry): entry is { file: RouteFile; match: NonNullable<ReturnType<typeof fuzzy>> } => !!entry.match)
+      .filter(
+        (
+          entry,
+        ): entry is {
+          file: RouteFile;
+          match: NonNullable<ReturnType<typeof fuzzy>>;
+        } => !!entry.match,
+      )
       .sort((left, right) => right.match.score - left.match.score),
   );
   const active = memo(() => Math.min(snapshot().active, Math.max(0, matches().length - 1)));
-  const rows = map(matches, (entry) => entry, { keyed: (entry) => entry.file.path });
+  const rows = map(matches, (entry) => entry, {
+    keyed: (entry) => entry.file.path,
+  });
   const groups = map(
     () => {
       const byFolder = new Map<string, RouteFile[]>();

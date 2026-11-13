@@ -2,9 +2,9 @@
 #
 # Tools: Go (the version in go.mod's toolchain line) and Bun. Bun builds,
 # type-checks, formats and tests the web app; it is not needed at run time.
-# The web app uses Reactre's source submodule, with no app package.json or
-# node_modules. Bun's own types come from a global install (`make tools`). Only its browser checks (web/e2e) have
-# a package.json, for puppeteer-core, and they need Chrome or Chromium.
+# The web app reads Reactre from its source submodule and installs its compiler's
+# pinned parser from web/vendor/oxc, offline. Bun's own types come from a global
+# install (`make tools`). Browser checks use puppeteer-core and Chrome/Chromium.
 
 BUN_TYPES_VERSION := 1.4.4
 STATICCHECK       := honnef.co/go/tools/cmd/staticcheck@v0.8.2
@@ -111,6 +111,7 @@ bench-results:
 web:
 	@test -f web/vendor/reactre/packages/core/src/index.ts || { echo "run git submodule update --init web/vendor/reactre"; exit 1; }
 	find $(WEB_DIST) -type f ! -name .gitkeep -delete
+	cd web && bun install --offline --frozen-lockfile
 	cd web && bun run build.ts
 
 ## pages: the web app as a static site (Cloudflare Pages runs this), with its
@@ -120,6 +121,7 @@ pages: web
 
 ## web-check: format check, type check and tests of the web app
 web-check:
+	cd web && bun install --offline --frozen-lockfile
 	cd web && bun fmt --check
 	cd web && bun run src/sdk/boundary.ts
 	cd web && bun check --no-pretty --typeRoots "$(BUN_GLOBAL)"
@@ -131,7 +133,7 @@ web-check:
 ## web-e2e: the built app and its forms in headless Chrome (CHROME=path picks
 ## the browser)
 web-e2e: web
-	cd web/e2e && bun install --frozen-lockfile
+	cd web/e2e && bun install --offline --frozen-lockfile
 	cd web && bun check --no-pretty -p e2e/tsconfig.json --typeRoots "$(BUN_GLOBAL)"
 	cd web/e2e && bun run e2e
 

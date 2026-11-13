@@ -1,12 +1,18 @@
-import { attach, For, Match, signal, Switch } from "@reactre/core";
+import { attach, For, Match, Switch } from "@reactre/core";
+import { createActor } from "@reactre/state";
 
 import { missingPicks, pickSummary, RECOMMENDED_SETUP } from "../new-route.ts";
+import { observeActor } from "../state/observe.ts";
+import { registerRequest } from "../state/request-service.ts";
+import { createRequest } from "../state/request.ts";
+import { routeSetupMachine } from "../state/route-setup.machine.ts";
+import { decodeValue, encodeValue } from "../state/wire.ts";
 import type { Catalog, ChoicePick } from "../types.ts";
 import type { routeForm } from "./route-form.tsx";
 
 export interface FlowApi {
-  savedChoices(): Promise<ChoicePick[]>;
-  catalog(probe?: boolean): Promise<Catalog>;
+  savedChoices(signal?: AbortSignal): Promise<ChoicePick[]>;
+  catalog(probe?: boolean, signal?: AbortSignal): Promise<Catalog>;
 }
 type Form = Pick<ReturnType<typeof routeForm>, "stop" | "form" | "sent" | "setCatalog">;
 
@@ -126,82 +132,72 @@ export function newRouteFlow(
   open: (catalog: Catalog, previous: boolean, recommended: boolean, needLists?: () => void) => Form,
   failed: (error: unknown) => void,
 ): { stop(): void } {
-  const [state, setState] = signal<FlowSnapshot>({ stage: "recommended", lines: [], error: "", waiting: false });
-  let form: Form | null = null,
-    stopped = false,
-    recommended = true,
-    opening = false;
+  let form: Form | null = null;
   let disposeQuestions = (): void => {};
-  const saved = api.savedChoices().catch((): ChoicePick[] => []);
-  const error = (error: unknown): void => {
-    if (stopped) return;
-    opening = false;
-    if (!form)
-      setState({
-        ...state(),
-        stage: "error",
-        waiting: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    failed(error);
+  const savedRequest = createRequest(async (_: void, signal) => api.savedChoices(signal));
+  const saved = savedRequest.run(undefined);
+  const service = registerRequest(async (kind, signal) => {
+    signal.throwIfAborted();
+    if (kind === "saved") {
+      const outcome = await saved;
+      const picks = outcome.status === "done" ? outcome.value : [];
+      return JSON.stringify([...new Set(picks.filter((pick) => pick.runner === "herdr").map(pickSummary))]);
+    }
+    return encodeValue(await api.catalog(kind === "probe", signal));
+  });
+  const actor = createActor(routeSetupMachine, { input: { service: service.id } });
+  const observed = observeActor(actor);
+  const fullLists = createRequest(async (_: void, signal) => api.catalog(true, signal));
+  const state = (): FlowSnapshot => {
+    const s = observed.read();
+    return {
+      stage:
+        s.state === "questions.previous"
+          ? "previous"
+          : s.state === "failed"
+            ? "error"
+            : s.state === "loading"
+              ? "loading"
+              : "recommended",
+      lines: s.state === "questions.previous" ? (JSON.parse(s.data.lines) as string[]) : [],
+      waiting: s.state === "questions.saved" || s.state === "loading",
+      error: s.state === "failed" ? s.data.error : "",
+    };
   };
-  const showForm = (catalog: Catalog, previous: boolean, needLists?: () => void): Form => {
+  const off = actor.subscribe((s) => {
+    if (s.state === "failed") failed(new Error(s.data.error));
+    if (s.state !== "opened") return;
+    const catalog = decodeValue<Catalog>(s.data.catalog);
+    const needLists = (): void => {
+      if (fullLists.loading() || fullLists.snapshot().state === "ready") return;
+      void fullLists.run(undefined).then((outcome) => {
+        if (outcome.status === "done" && form && !form.sent())
+          form.setCatalog({ ...outcome.value, previous: catalog.previous ?? [] });
+        else if (outcome.status === "failed") failed(outcome.error);
+      });
+    };
     disposeQuestions();
-    return open(catalog, previous, recommended, needLists);
+    form = open(catalog, s.data.previous, s.data.recommended, s.data.previous ? needLists : undefined);
+    if (s.data.previous && Object.keys(missingPicks(form.form(), catalog)).length) needLists();
+  });
+  const answer = (recommended: boolean): void => {
+    actor.send({ type: "answer", recommended });
   };
   const probe = (): void => {
-    if (stopped || opening) return;
-    opening = true;
-    setState({ ...state(), stage: "loading", waiting: true });
-    void api.catalog(true).then((catalog) => {
-      if (!stopped) form = showForm(catalog, false);
-    }, error);
+    actor.send({ type: "probe" });
   };
   const previous = (): void => {
-    if (stopped || opening) return;
-    opening = true;
-    setState({ ...state(), waiting: true });
-    void api.catalog(false).then((catalog) => {
-      if (stopped) return;
-      let asked = false;
-      const needLists = (): void => {
-        if (asked || stopped) return;
-        asked = true;
-        void api.catalog(true).then(
-          (full) => {
-            if (!stopped && !current.sent()) current.setCatalog({ ...full, previous: catalog.previous ?? [] });
-          },
-          (failure: unknown) => {
-            asked = false;
-            error(failure);
-          },
-        );
-      };
-      const current = showForm(catalog, true, needLists);
-      form = current;
-      if (Object.keys(missingPicks(current.form(), catalog)).length) needLists();
-    }, error);
-  };
-  const answer = (value: boolean): void => {
-    if (stopped || state().waiting) return;
-    recommended = value;
-    setState({ ...state(), waiting: true });
-    void saved.then((picks) => {
-      if (stopped) return;
-      const lines = [...new Set(picks.filter((pick) => pick.runner === "herdr").map(pickSummary))];
-      if (!lines.length) {
-        probe();
-        return;
-      }
-      setState({ ...state(), stage: "previous", lines, waiting: false });
-    });
+    actor.send({ type: "previous" });
   };
   body.replaceChildren();
   disposeQuestions = attach(() => <Questions state={state} answer={answer} probe={probe} previous={previous} />, body);
   return {
     stop: () => {
-      if (stopped) return;
-      stopped = true;
+      off();
+      observed.stop();
+      service.dispose();
+      fullLists.stop();
+      savedRequest.stop();
       form?.stop();
       disposeQuestions();
     },

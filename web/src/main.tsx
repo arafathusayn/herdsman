@@ -1,4 +1,5 @@
-import { batch, effect, Match, memo, onCleanup, Show, signal, Switch, untrack } from "@reactre/core";
+import { batch, effect, Match, memo, onCleanup, Show, Switch, untrack } from "@reactre/core";
+import { createActor } from "@reactre/state";
 
 import { activityPinger } from "./activity.ts";
 import { AuthError, openStream, pairStatus, readChannel, sendActivity, startSession, useHost } from "./api.ts";
@@ -21,6 +22,13 @@ import { pageById } from "./pages/index.tsx";
 import { isMac, openPalette, paletteOpen } from "./palette.tsx";
 import { loadWidths, navResizer } from "./resize.tsx";
 import { bindHost } from "./sdk/index.ts";
+import { lifetime } from "./state/lifetime.ts";
+import { createPoll } from "./state/poll.ts";
+import { registerRequest } from "./state/request-service.ts";
+import { controllerScope } from "./state/scope.ts";
+import { startupMachine } from "./state/startup.machine.ts";
+import { valueState } from "./state/value.ts";
+import { decodeValue, encodeValue } from "./state/wire.ts";
 import { type App, store } from "./store.ts";
 import { installTooltips } from "./tooltip.tsx";
 import type { Route, State } from "./types.ts";
@@ -60,11 +68,11 @@ const root: HTMLElement = appRoot;
 
 let panel: AgentHandle | null = null;
 let disposePairing: (() => void) | null = null;
-const [navOpen, setNavOpen] = signal(false);
-const [navCollapsed, setNavCollapsed] = signal(readCollapsed());
+const [navOpen, setNavOpen] = valueState(false);
+const [navCollapsed, setNavCollapsed] = valueState(readCollapsed());
 
 const narrow = matchMedia("(max-width: 860px)");
-const [isNarrow, setNarrow] = signal(narrow.matches);
+const [isNarrow, setNarrow] = valueState(narrow.matches);
 narrow.addEventListener("change", (event) =>
   batch(() => {
     setNarrow(event.matches);
@@ -91,11 +99,11 @@ function toggleNav(): void {
     }
   }
 }
-let files: FilesState | null = null;
-let changes: DiffState | null = null; // polls git only while its tab shows
-let artifacts: ArtifactsState | null = null; // lists pages only while its tab shows
+let files: (FilesState & { dispose(): void }) | null = null;
+let changes: (DiffState & { dispose(): void }) | null = null; // polls git only while its tab shows
+let artifacts: (ArtifactsState & { dispose(): void }) | null = null; // lists pages only while its tab shows
 const messages = createMessagesState();
-const [host, setHost] = signal<Host | null>(null);
+const [host, setHost] = valueState<Host | null>(null);
 
 const sidebarActions: SidebarActions = {
   go: (route, ws) =>
@@ -176,15 +184,21 @@ effect(() => {
 // The user's own clicks and keys (route tabs, Changes, a terminal) say the
 // user is here, at most every 10 s (A33); timers never do.
 const ping = activityPinger(sendActivity, 10_000);
-document.addEventListener("pointerdown", ping, { capture: true, passive: true });
+document.addEventListener("pointerdown", ping, {
+  capture: true,
+  passive: true,
+});
 document.addEventListener("keydown", ping, { capture: true, passive: true });
 
-boot().catch((e: unknown) => store.set({ fatal: e instanceof Error ? e.message : String(e) }));
+boot();
 
 /** Whether the page's own server is a herdsman host: true when `herdsman web` served the app. */
 async function servesApi(origin: string): Promise<boolean> {
   try {
-    const res = await fetch(`${origin}/api/pair`, { cache: "no-store", signal: AbortSignal.timeout(2500) });
+    const res = await fetch(`${origin}/api/pair`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(2500),
+    });
     const body = (await res.json()) as { status?: unknown };
     return res.ok && typeof body.status === "string";
   } catch {
@@ -192,89 +206,126 @@ async function servesApi(origin: string): Promise<boolean> {
   }
 }
 
-async function boot(): Promise<void> {
-  const hs = loadHosts();
-  // A pairing link: #t=TOKEN from `herdsman web`, or #host=URL&t=TOKEN for a
-  // hosted app. It leaves the address bar and history at once.
-  const link = /(?:^#|&)t=/.test(location.hash) ? parseLink(location.href, location.origin) : null;
-  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
-  let token = "";
-  // The page's own server and the hosts already here are trusted; a link that
-  // names any other host asks first, since any page can open such a link.
-  const ownUrl = normalizeUrl(location.origin + location.pathname);
-  if (link && link.url !== ownUrl && !hs.hosts.some((x) => x.url === link.url)) {
-    if (!(await confirmHost(root, link.url))) {
+/** Startup decisions live in the actor; callbacks below only perform each step's I/O. */
+function boot(): void {
+  interface Context {
+    hosts: ReturnType<typeof loadHosts>;
+    link: ReturnType<typeof parseLink>;
+    token: string;
+    current?: Host;
+  }
+  const service = registerRequest(async (json, signal) => {
+    const command = JSON.parse(json) as { step: string; context: string };
+    const reply = (status: string, context: Context) => JSON.stringify({ status, context: encodeValue(context) });
+    if (command.step === "inspecting") {
+      const hosts = loadHosts();
+      const link = /(?:^#|&)t=/.test(location.hash) ? parseLink(location.href, location.origin) : null;
+      if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+      const ownUrl = normalizeUrl(location.origin + location.pathname);
+      const trust = link && link.url !== ownUrl && !hosts.hosts.some((host) => host.url === link.url);
+      return reply(trust ? "trust" : "select", { hosts, link, token: "" });
+    }
+    const context = decodeValue<Context>(command.context);
+    const { hosts, link } = context;
+    if (command.step === "trusting") {
+      const accepted = await confirmHost(root, link!.url);
+      signal.throwIfAborted();
+      if (!accepted) {
+        showConnect(
+          root,
+          "Host not added",
+          "The link's host was not added. Pick a host you know, or paste a link you trust.",
+        );
+        return reply("unavailable", context);
+      }
+      disposeHostScreen(root);
+      root.replaceChildren(topbarView.el, frameBody.el);
+      return reply("select", context);
+    }
+    if (command.step === "selecting") {
+      if (link) {
+        upsert(hosts, link.url);
+        context.token = link.token;
+        saveHosts(hosts);
+      } else if (!hosts.hosts.length && (await servesApi(location.origin))) {
+        signal.throwIfAborted();
+        const self = normalizeUrl(location.origin);
+        if (self) {
+          upsert(hosts, self);
+          saveHosts(hosts);
+        }
+      }
+      signal.throwIfAborted();
+      const current = hosts.hosts.find((item) => item.id === hosts.current);
+      if (!current) {
+        showConnect(
+          root,
+          "Connect to a host",
+          "Paste the pairing link that `herdsman web` printed on the machine that runs your agents.",
+        );
+        return reply("unavailable", context);
+      }
+      bindHost(current);
+      setHost(current);
+      useHost(current);
+      context.current = current;
+      context.token ||= takePendingLink(current.url);
+      return reply("check", context);
+    }
+    const current = context.current!;
+    let result: Awaited<ReturnType<typeof pairStatus>>;
+    try {
+      result = context.token ? await startSession(context.token, signal) : await pairStatus(signal);
+    } catch {
+      signal.throwIfAborted();
+      keepPendingLink(current.url, context.token);
+      const blocked = blockedReason(location.protocol, current.url);
+      const hint = localNetworkHint(location.hostname, current.url);
       showConnect(
         root,
-        "Host not added",
-        "The link's host was not added. Pick a host you know, or paste a link you trust.",
+        `Cannot reach ${current.name}`,
+        blocked ||
+          `Is herdsman web running at ${current.url}? Start it there, or pick another host.${hint ? ` ${hint}` : ""}`,
+        blocked ? undefined : () => location.reload(),
       );
-      return;
+      return reply("unavailable", context);
     }
-    // The question took the frame's place; a host that answers "paired"
-    // connects into the frame, so it comes back first.
-    disposeHostScreen(root);
-    root.replaceChildren(topbarView.el, frameBody.el);
-  }
-  if (link) {
-    upsert(hs, link.url);
-    token = link.token;
-    saveHosts(hs);
-  } else if (!hs.hosts.length && (await servesApi(location.origin))) {
-    const self = normalizeUrl(location.origin);
-    if (self) {
-      upsert(hs, self);
-      saveHosts(hs);
+    signal.throwIfAborted();
+    if (result.status === "none") {
+      if (current.device) rememberDevice("");
+      showConnect(
+        root,
+        context.token ? "That link did not work" : `Pair with ${current.name}`,
+        result.error ??
+          "This host does not know this browser yet, or its server restarted. Paste the pairing link that herdsman web printed there.",
+      );
     }
-  }
-  const current = hs.hosts.find((x) => x.id === hs.current);
-  if (!current) {
-    showConnect(
-      root,
-      "Connect to a host",
-      "Paste the pairing link that `herdsman web` printed on the machine that runs your agents.",
-    );
-    return;
-  }
-  // Before the signal: setting it renders the open page, which reads the SDK at once.
-  bindHost(current);
-  setHost(current);
-  useHost(current);
-  token ||= takePendingLink(current.url);
-  let st: Awaited<ReturnType<typeof pairStatus>>;
-  try {
-    st = token ? await startSession(token) : await pairStatus();
-  } catch {
-    // The link's token waits for the host, so trying again (after the
-    // browser's local network prompt, or once the server runs) still pairs.
-    keepPendingLink(current.url, token);
-    const blocked = blockedReason(location.protocol, current.url);
-    const hint = localNetworkHint(location.hostname, current.url);
-    showConnect(
-      root,
-      `Cannot reach ${current.name}`,
-      blocked ||
-        `Is herdsman web running at ${current.url}? Start it there, or pick another host.${hint ? ` ${hint}` : ""}`,
-      blocked ? undefined : () => location.reload(),
-    );
-    return;
-  }
-  if (st.status === "paired") connect();
-  else if (st.status === "pairing") {
+    return reply(result.status, context);
+  });
+  const actor = createActor(startupMachine, { input: { service: service.id, context: "" } });
+  const off = actor.subscribe((snapshot) => {
+    if (snapshot.state === "connected") connect();
+    else if (snapshot.state === "pairing") {
+      disposeHostScreen(root);
+      disposePairing = showPairing(root, host()?.name ?? "Host", (device) => {
+        rememberDevice(device);
+        connectAfterPairing();
+      });
+    } else if (snapshot.state === "failed") store.set({ fatal: snapshot.data.error });
+    if (actor.status() === "done") {
+      off();
+      service.dispose();
+    }
+  });
+  window.addEventListener("pagehide", (event) => {
+    if (event.persisted) return;
+    actor.send({ type: "cancel" });
+    actor.stop();
+    off();
+    service.dispose();
     disposeHostScreen(root);
-    disposePairing = showPairing(root, current.name, (device) => {
-      rememberDevice(device);
-      connectAfterPairing();
-    });
-  } else {
-    if (current.device) rememberDevice("");
-    showConnect(
-      root,
-      token ? "That link did not work" : `Pair with ${current.name}`,
-      st.error ??
-        "This host does not know this browser yet, or its server restarted. Paste the pairing link that herdsman web printed there.",
-    );
-  }
+    disposePairing?.();
+  });
 }
 
 /** Keeps the current host's device secret, or forgets it with "". */
@@ -300,8 +351,29 @@ function connectAfterPairing(): void {
   connect();
 }
 
+let closeStream = (): void => {};
+const channelPoll = createPoll(async (signal) => {
+  const channel = await readChannel(signal);
+  if (!signal.aborted) store.set({ channel });
+  const fast = store.app.view.tab === "messages" && !!channel.configured;
+  return fast ? 2500 : channel.configured ? 10000 : 30000;
+}, 10000);
+window.addEventListener("pagehide", (event) => {
+  if (event.persisted) return;
+  closeStream();
+  channelPoll.dispose();
+  messages.dispose();
+  files?.dispose();
+  changes?.stop();
+  changes?.dispose();
+  artifacts?.stop();
+  artifacts?.dispose();
+});
+
 function connect(): void {
-  openStream({
+  closeStream();
+  channelPoll.stop();
+  closeStream = openStream({
     state: (s) =>
       batch(() => {
         store.set({ server: s });
@@ -311,6 +383,7 @@ function connect(): void {
     entry: (e) => store.addEntries([e]),
     connection: (up) => store.set({ connected: up }),
     unauthorized: () => {
+      channelPoll.stop();
       rememberDevice("");
       showConnect(
         root,
@@ -318,19 +391,8 @@ function connect(): void {
         `${host()?.name ?? "The host"} no longer knows this browser: its server restarted. Paste the new pairing link that herdsman web printed.`,
       );
     },
-  });
-  void pollChannel();
-}
-
-/** Reads the message channel: often while the Messages tab shows, now and then otherwise. */
-async function pollChannel(): Promise<void> {
-  try {
-    store.set({ channel: await readChannel() });
-  } catch {
-    // Kept as it was; the next read tries again.
-  }
-  const fast = store.app.view.tab === "messages" && !!store.app.channel?.configured;
-  setTimeout(() => void pollChannel(), fast ? 2500 : store.app.channel?.configured ? 10000 : 30000);
+  }).close;
+  channelPoll.start();
 }
 
 function pickDefaultRoute(): void {
@@ -389,16 +451,16 @@ function ConnectedContent(props: { app: App; server: State }) {
 
 function RouteScreen(props: { route: Route; app: App; idx: Index }) {
   let row!: HTMLDivElement;
-  let shown = "";
-  let disposed = false;
+  const [shown, setShown] = valueState("");
+  const life = lifetime();
   onCleanup(() => {
-    disposed = true;
+    life.close();
   });
   effect(() => {
     const tab = props.app.view.tab;
     queueMicrotask(() => {
-      if (disposed || shown === tab || props.app.view.tab !== tab) return;
-      shown = tab;
+      if (life.closed() || shown() === tab || props.app.view.tab !== tab) return;
+      setShown(tab);
       const active = row?.querySelector<HTMLElement>(".tab.active");
       if (active) {
         const left = active.getBoundingClientRect().left - row.getBoundingClientRect().left + row.scrollLeft;
@@ -452,7 +514,11 @@ function RouteScreen(props: { route: Route; app: App; idx: Index }) {
 }
 
 function DocsTab(props: { route: Route; selected: string }) {
-  const view = files?.routeId === props.route.id ? files : (files = createFilesState(props.route.id));
+  if (files?.routeId !== props.route.id) {
+    files?.dispose();
+    files = controllerScope(() => createFilesState(props.route.id));
+  }
+  const view = files;
   effect(() => {
     const route = props.route,
       selected = props.selected;
@@ -464,7 +530,8 @@ function DocsTab(props: { route: Route; selected: string }) {
 function ChangesTab(props: { route: Route; app: App }) {
   if (changes?.routeId !== props.route.id) {
     changes?.stop();
-    changes = createDiffState(props.route.id);
+    changes?.dispose();
+    changes = controllerScope(() => createDiffState(props.route.id));
   }
   const view = changes;
   effect(() => {
@@ -481,7 +548,8 @@ function ChangesTab(props: { route: Route; app: App }) {
 function ArtifactsTab(props: { route: Route; selected: string }) {
   if (artifacts?.routeId !== props.route.id) {
     artifacts?.stop();
-    artifacts = createArtifactsState(props.route.id);
+    artifacts?.dispose();
+    artifacts = controllerScope(() => createArtifactsState(props.route.id));
   }
   const view = artifacts;
   effect(() => {
@@ -496,10 +564,14 @@ function ArtifactsTab(props: { route: Route; selected: string }) {
 }
 
 function MessagesTab(props: { route: Route; channel: App["channel"] }) {
+  onCleanup(() => messages.stop());
   return (
     <MessagesView
       channel={props.channel}
-      panes={{ adjutant: props.route.adjutant_pane ?? "", orchestrator: props.route.orchestrator_pane }}
+      panes={{
+        adjutant: props.route.adjutant_pane ?? "",
+        orchestrator: props.route.orchestrator_pane,
+      }}
       state={messages}
     />
   );

@@ -1,9 +1,11 @@
-import { attach, batch, effect, For, memo, Show, signal } from "@reactre/core";
+import { attach, batch, effect, For, memo, Show } from "@reactre/core";
 
 import { Highlight } from "./components/highlight.tsx";
 import { Icon } from "./components/icons.tsx";
 import { fuzzy } from "./fuzzy.ts";
 import { icons } from "./icons.ts";
+import { lifetime } from "./state/lifetime.ts";
+import { valueState } from "./state/value.ts";
 
 export type CommandKind = "command" | "agent" | "route" | "file";
 
@@ -15,10 +17,18 @@ export interface Command {
   icon?: string[];
   keys?: string;
   run?: () => unknown;
-  ask?: { prompt: string; placeholder: string; submit: (text: string) => unknown };
+  ask?: {
+    prompt: string;
+    placeholder: string;
+    submit: (text: string) => unknown;
+  };
 }
 
-const prefixes: Record<string, CommandKind> = { ">": "command", "@": "agent", "#": "file" };
+const prefixes: Record<string, CommandKind> = {
+  ">": "command",
+  "@": "agent",
+  "#": "file",
+};
 const maxRows = 80;
 const searchHint = "Search agents, routes and files, or type > for commands";
 export const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
@@ -49,37 +59,40 @@ function matching(commands: Command[], raw: string) {
 let openInput: HTMLInputElement | null = null;
 export const paletteOpen = (): boolean => openInput !== null;
 
-/** A mounted command palette: query, cursor and prompt mode are independent signals. */
+/** A mounted command palette: query, cursor and prompt mode belong to actors. */
 export function openPalette(provider: () => Command[], initial = ""): void {
   if (openInput) {
     openInput.focus();
     return;
   }
   const returnFocus = document.activeElement;
-  const [commands, setCommands] = signal(provider());
-  const [query, setQuery] = signal(initial);
-  const [active, setActive] = signal(0);
-  const [asking, setAsking] = signal<Command | null>(null);
+  const commands = memo(provider);
+  const [query, setQuery] = valueState(initial);
+  const [answer, setAnswer] = valueState("");
+  const [active, setActive] = valueState(0);
+  const [askingId, setAskingId] = valueState<string | null>(null);
+  const asking = () => commands().find((command) => command.id === askingId()) ?? null;
+  const setAsking = (command: Command | null) => setAskingId(command?.id ?? null);
   let input!: HTMLInputElement;
   let dialog!: HTMLDialogElement;
   let listbox!: HTMLDivElement;
   let shown!: () => Command[];
   let dispose = (): void => {};
-  let closed = false;
+  const closed = lifetime();
 
   const close = (): void => {
     dialog.close();
   };
   const back = (): void =>
     batch(() => {
-      input.value = "";
+      setAnswer("");
       setAsking(null);
       setQuery("");
       setActive(0);
     });
   const execute = (command: Command): void => {
     if (command.ask) {
-      input.value = "";
+      setAnswer("");
       setAsking(command);
     } else {
       close();
@@ -92,9 +105,9 @@ export function openPalette(provider: () => Command[], initial = ""): void {
       if (event.key === "Escape") {
         event.preventDefault();
         back();
-      } else if (event.key === "Enter" && input.value.trim()) {
+      } else if (event.key === "Enter" && answer().trim()) {
         event.preventDefault();
-        const text = input.value;
+        const text = answer();
         close();
         void command.ask?.submit(text);
       }
@@ -140,8 +153,7 @@ export function openPalette(provider: () => Command[], initial = ""): void {
           else close();
         }}
         onClose={() => {
-          if (closed) return;
-          closed = true;
+          if (!closed.close()) return;
           openInput = null;
           dispose();
           if (returnFocus && "focus" in returnFocus && typeof returnFocus.focus === "function") returnFocus.focus();
@@ -151,7 +163,7 @@ export function openPalette(provider: () => Command[], initial = ""): void {
           <Icon paths={icons.search} />
           <input
             type="text"
-            value={initial}
+            value={asking() ? answer() : query()}
             placeholder={asking()?.ask?.placeholder ?? searchHint}
             aria-label="Command palette"
             autocomplete="off"
@@ -164,7 +176,8 @@ export function openPalette(provider: () => Command[], initial = ""): void {
               input = element;
             }}
             onInput={() => {
-              if (!asking())
+              if (asking()) setAnswer(input.value);
+              else
                 batch(() => {
                   setActive(0);
                   setQuery(input.value);
@@ -242,7 +255,6 @@ export function openPalette(provider: () => Command[], initial = ""): void {
   dispose = attach(View, document.body);
   openInput = input;
   dialog.showModal();
-  setCommands(provider());
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
 }

@@ -1,4 +1,4 @@
-import { effect, For, memo, onCleanup, Show, signal, untrack } from "@reactre/core";
+import { effect, For, memo, onCleanup, Show, untrack } from "@reactre/core";
 import { map } from "@reactre/core/features/lists";
 
 import { run } from "../actions.ts";
@@ -13,6 +13,9 @@ import { icons } from "../icons.ts";
 import { afterSend, type Member, roleName } from "../model.ts";
 import { isMac } from "../palette.tsx";
 import { panelResizer } from "../resize.tsx";
+import { createPoll } from "../state/poll.ts";
+import { createRequest } from "../state/request.ts";
+import { valueState } from "../state/value.ts";
 import { store } from "../store.ts";
 import {
   type Input,
@@ -60,8 +63,18 @@ function loadInfoOpen(): boolean {
 }
 
 const probeCells = 20;
-const views: readonly { id: PaneView; glyph: readonly string[]; label: string; tip: string }[] = [
-  { id: "log", glyph: icons.list, label: "Log", tip: "The pane's recent output, with a box to message the agent" },
+const views: readonly {
+  id: PaneView;
+  glyph: readonly string[];
+  label: string;
+  tip: string;
+}[] = [
+  {
+    id: "log",
+    glyph: icons.list,
+    label: "Log",
+    tip: "The pane's recent output, with a box to message the agent",
+  },
   {
     id: "terminal",
     glyph: icons.terminal,
@@ -78,11 +91,12 @@ interface PanelSnapshot {
   view: PaneView;
   zoom: number;
   busy: boolean;
+  draft: string;
+  sendAs: "prompt" | "text";
   typing: boolean;
   font: number;
   lineHeight: string;
   screen: { text: string; palette: Palette | null };
-  resizer: HTMLElement | null;
 }
 export interface AgentHandle {
   focusComposer: () => void;
@@ -90,22 +104,23 @@ export interface AgentHandle {
 
 /** Owns terminal I/O and measurements; every displayed value lives in the signal snapshot. */
 class AgentController implements AgentHandle {
-  private readonly data = signal<PanelSnapshot>({
+  private readonly data = valueState<Omit<PanelSnapshot, "busy">>({
     member: null,
     hasAdjutant: false,
     infoOpen: loadInfoOpen(),
     note: "",
     view: loadView(),
     zoom: loadZoom(),
-    busy: false,
+    draft: "",
+    sendAs: "prompt",
     typing: false,
     font: baseFont,
     lineHeight: "",
     screen: { text: "", palette: null },
-    resizer: null,
   });
-  readonly state = this.data[0];
-  private set(patch: Partial<PanelSnapshot>): void {
+  private readonly sending = createRequest(async (action: Action, signal) => run(action, signal));
+  readonly state = (): PanelSnapshot => ({ ...this.data[0](), busy: this.sending.loading() });
+  private set(patch: Partial<Omit<PanelSnapshot, "busy">>): void {
     this.data[1]((state) => ({ ...state, ...patch }));
   }
   get member() {
@@ -137,21 +152,80 @@ class AgentController implements AgentHandle {
   mode!: HTMLSelectElement;
   want!: HTMLDivElement;
   private readonly wheel = new WheelLines();
-  private readonly inputs = new InputQueue((input) => this.sendInput(input));
+  private readonly inputs = new InputQueue((input, signal) => this.sendInput(input, signal));
   private fit: ResizeObserver | undefined;
-  private cell = { w: 0, h: 0 };
-  private cols = 0;
-  private unit = 0;
-  private rowFitted = false;
-  private timer = 0;
-  private stuck = true;
-  private truncated = false;
-  private palKey = "";
-  private dead = false;
-  private reading = false;
-  private again = false;
-  private fastUntil = 0;
-  private generation = 0;
+  private readonly runtime = valueState({
+    cell: { w: 0, h: 0 },
+    cols: 0,
+    unit: 0,
+    rowFitted: false,
+    stuck: true,
+    truncated: false,
+    palKey: "",
+    dead: false,
+    fastUntil: 0,
+    generation: 0,
+  });
+  private get cell() {
+    return this.runtime[0]().cell;
+  }
+  private set cell(value: { w: number; h: number }) {
+    this.runtime[1]((state) => ({ ...state, cell: value }));
+  }
+  private get cols() {
+    return this.runtime[0]().cols;
+  }
+  private set cols(value: number) {
+    this.runtime[1]((state) => ({ ...state, cols: value }));
+  }
+  private get unit() {
+    return this.runtime[0]().unit;
+  }
+  private set unit(value: number) {
+    this.runtime[1]((state) => ({ ...state, unit: value }));
+  }
+  private get rowFitted() {
+    return this.runtime[0]().rowFitted;
+  }
+  private set rowFitted(value: boolean) {
+    this.runtime[1]((state) => ({ ...state, rowFitted: value }));
+  }
+  private get stuck() {
+    return this.runtime[0]().stuck;
+  }
+  private set stuck(value: boolean) {
+    this.runtime[1]((state) => ({ ...state, stuck: value }));
+  }
+  private get truncated() {
+    return this.runtime[0]().truncated;
+  }
+  private set truncated(value: boolean) {
+    this.runtime[1]((state) => ({ ...state, truncated: value }));
+  }
+  private get palKey() {
+    return this.runtime[0]().palKey;
+  }
+  private set palKey(value: string) {
+    this.runtime[1]((state) => ({ ...state, palKey: value }));
+  }
+  private get dead() {
+    return this.runtime[0]().dead;
+  }
+  private set dead(value: boolean) {
+    this.runtime[1]((state) => ({ ...state, dead: value }));
+  }
+  private get fastUntil() {
+    return this.runtime[0]().fastUntil;
+  }
+  private set fastUntil(value: number) {
+    this.runtime[1]((state) => ({ ...state, fastUntil: value }));
+  }
+  private get generation() {
+    return this.runtime[0]().generation;
+  }
+  private set generation(value: number) {
+    this.runtime[1]((state) => ({ ...state, generation: value }));
+  }
 
   readonly pane: string;
   readonly kinds: () => string[];
@@ -161,7 +235,7 @@ class AgentController implements AgentHandle {
   }
 
   mount(): void {
-    this.set({ resizer: panelResizer(this.el) });
+    this.el.append(panelResizer(this.el));
     this.fit = new ResizeObserver(() => this.fitFont());
     this.fit.observe(this.tail);
     this.fit.observe(this.want);
@@ -219,7 +293,11 @@ class AgentController implements AgentHandle {
   setView(v: PaneView): void {
     if (v === this.view) return;
     this.generation++;
-    this.set({ view: v, typing: false, screen: { ...this.state().screen, text: "" } });
+    this.set({
+      view: v,
+      typing: false,
+      screen: { ...this.state().screen, text: "" },
+    });
     try {
       localStorage.setItem(viewKey, v);
     } catch {
@@ -281,12 +359,12 @@ class AgentController implements AgentHandle {
     else void run({ type: "keys", pane: this.pane, keys });
   }
 
-  private async sendInput(i: Input): Promise<boolean> {
+  private async sendInput(i: Input, signal: AbortSignal): Promise<boolean> {
     if (this.dead) return false;
     const a: Action =
       "lines" in i ? { type: "scroll", pane: this.pane, ...i } : { type: "input", pane: this.pane, ...i };
     try {
-      const res = await act(a);
+      const res = await act(a, signal);
       if (this.dead) return false;
       if (!res.ok) {
         toast(res.error ?? "The pane did not take the input.", "error");
@@ -313,8 +391,10 @@ class AgentController implements AgentHandle {
 
   destroy(): void {
     this.dead = true;
+    this.inputs.stop();
+    this.sending.stop();
     this.fit?.disconnect();
-    clearTimeout(this.timer);
+    this.poll.dispose();
     forgetPane(this.pane);
   }
 
@@ -377,47 +457,28 @@ class AgentController implements AgentHandle {
    * agent redraws a little after it gets the keys or the wheel, and each
    * frame should show as it lands, not a whole poll later.
    */
+  private readonly poll = createPoll(async (signal) => {
+    await this.read(signal);
+    return performance.now() < this.fastUntil ? fastPoll : this.view === "terminal" ? 250 : 1000;
+  }, 1000);
   private poke(): void {
     this.fastUntil = performance.now() + fastFor;
-    if (this.reading) {
-      this.again = true;
-      return;
-    }
-    clearTimeout(this.timer);
-    this.timer = window.setTimeout(() => void this.tick(), 30);
+    this.poll.wake();
   }
-
   private start(): void {
-    void this.tick();
+    this.poll.start();
   }
 
-  /** Reads and draws the pane; one read at a time, so frames never land out of order. */
-  private async tick(): Promise<void> {
-    if (this.dead || this.reading) return;
-    this.reading = true;
-    this.again = false;
-    try {
-      await this.read();
-    } finally {
-      this.reading = false;
-    }
-    if (this.dead) return;
-    const term = this.view === "terminal";
-    const delay = this.again ? 0 : performance.now() < this.fastUntil ? fastPoll : term ? 250 : 1000;
-    clearTimeout(this.timer);
-    this.timer = window.setTimeout(() => void this.tick(), delay);
-  }
-
-  private async read(): Promise<void> {
+  private async read(signal: AbortSignal): Promise<void> {
     const term = this.view === "terminal";
     const generation = this.generation;
     if (!document.hidden && this.member?.status !== "gone") {
       try {
-        const r = await readPane(this.pane, term);
-        if (this.dead) return;
+        const r = await readPane(this.pane, term, 400, signal);
+        if (this.dead || signal.aborted) return;
         // The view can change while the read is out; its answer is for the other one.
         if (generation !== this.generation) {
-          this.again = true;
+          this.poll.wake();
           return;
         }
         // Colors are fixed when drawn, so a new theme or scheme redraws the same text.
@@ -435,7 +496,7 @@ class AgentController implements AgentHandle {
           if (this.stuck) this.tail.scrollTop = this.tail.scrollHeight;
         }
       } catch (e) {
-        if (this.dead) return;
+        if (this.dead || signal.aborted) return;
         if (e instanceof AuthError) store.set({ fatal: e.message });
         else this.setNote(e instanceof Error ? e.message : String(e));
       }
@@ -447,17 +508,23 @@ class AgentController implements AgentHandle {
     this.set({ note });
   }
 
+  editDraft(value: string): void {
+    this.set({ draft: value });
+    if (this.input && this.input.value !== value) this.input.value = value;
+  }
+  chooseSendAs(value: string): void {
+    this.set({ sendAs: value === "text" ? "text" : "prompt" });
+  }
   async send(): Promise<void> {
-    const text = this.input.value;
+    // Native submit is also an input boundary (autofill can skip input events).
+    this.editDraft(this.input.value);
+    this.chooseSendAs(this.mode.value);
+    const text = this.state().draft;
     if (!text.trim() || this.busy) return;
-    this.set({ busy: true });
-    const type = this.mode.value === "text" ? "text" : "prompt";
-    const ok = await run({ type, pane: this.pane, text });
-    if (this.dead) return;
-    this.set({ busy: false });
-    if (ok) {
-      // The box stays editable while the send is out; keep what was typed meanwhile.
-      this.input.value = afterSend(text, this.input.value);
+    const outcome = await this.sending.run({ type: this.state().sendAs, pane: this.pane, text });
+    if (this.dead || outcome.status === "cancelled") return;
+    if (outcome.status === "done" && outcome.value) {
+      this.editDraft(afterSend(text, this.input.value));
       this.stuck = true;
     }
     this.input.focus();
@@ -508,7 +575,12 @@ function PanelHead(props: { member: Member; controller: AgentController }) {
       run: () => startAgent(controller.pane, controller.kinds()),
       danger: false,
     },
-    { glyph: icons.tag, label: "Rename", run: () => controller.member && renamePane(controller.member), danger: false },
+    {
+      glyph: icons.tag,
+      label: "Rename",
+      run: () => controller.member && renamePane(controller.member),
+      danger: false,
+    },
     {
       glyph: icons.split,
       label: "Split right",
@@ -649,7 +721,10 @@ function PanelView(props: { controller: AgentController }) {
           class="tail"
           tabindex="0"
           aria-label={term() ? "Pane screen: press Enter to type into it" : "Pane output"}
-          style={{ fontSize: state().font === baseFont ? "" : `${state().font}px`, lineHeight: state().lineHeight }}
+          style={{
+            fontSize: state().font === baseFont ? "" : `${state().font}px`,
+            lineHeight: state().lineHeight,
+          }}
           ref={(element) => {
             controller.tail = element;
           }}
@@ -727,6 +802,8 @@ function PanelView(props: { controller: AgentController }) {
           placeholder={placeholder()}
           spellcheck="true"
           aria-label="Message"
+          defaultValue={state().draft}
+          onInput={(event) => controller.editDraft((event.currentTarget as HTMLTextAreaElement).value)}
           disabled={gone()}
           ref={(element) => {
             controller.input = element;
@@ -742,13 +819,18 @@ function PanelView(props: { controller: AgentController }) {
           <label class="select">
             <select
               aria-label="Send as"
+              onChange={(event) => controller.chooseSendAs((event.currentTarget as HTMLSelectElement).value)}
               title="Prompt goes through the agent; Type sends raw text into the pane"
               ref={(element) => {
                 controller.mode = element;
               }}
             >
-              <option value="prompt">Prompt</option>
-              <option value="text">Type raw</option>
+              <option value="prompt" selected={state().sendAs === "prompt"}>
+                Prompt
+              </option>
+              <option value="text" selected={state().sendAs === "text"}>
+                Type raw
+              </option>
             </select>
             <Icon paths={icons.chevronDown} />
           </label>
@@ -766,7 +848,6 @@ function PanelView(props: { controller: AgentController }) {
           controller.want = element;
         }}
       />
-      <>{state().resizer}</>
     </aside>
   );
 }

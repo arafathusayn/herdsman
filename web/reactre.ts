@@ -1,14 +1,25 @@
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { type BunPlugin, plugin } from "bun";
 
 import { reactreCompiler } from "./vendor/reactre/packages/compiler/src/index.ts";
 import { isIdent, literal, skipToken } from "./vendor/reactre/packages/compiler/src/scan.ts";
+import { compile as compileState } from "./vendor/reactre/packages/state/compiler/index.ts";
 
-const imports = /^@reactre\/(core|dom)(\/.*)?$/;
+const stateExports = JSON.parse(
+  readFileSync(new URL("./vendor/reactre/packages/state/package.json", import.meta.url), "utf8"),
+).exports as Record<string, { "reactre-source": string }>;
+const imports = /^@reactre\/(core|dom|state)(\/.*)?$/;
 
 function source(path: string): string {
-  const [, pkg, subpath] = /^@reactre\/(core|dom)(?:\/(.*))?$/.exec(path)!;
+  const [, pkg, subpath] = /^@reactre\/(core|dom|state)(?:\/(.*))?$/.exec(path)!;
+  if (pkg === "state") {
+    const key = subpath ? `./${subpath}` : ".";
+    const entry = stateExports[key]?.["reactre-source"];
+    if (!entry) throw new Error(`Unknown Reactre state entry: ${path}`);
+    return join(import.meta.dir, "vendor/reactre/packages/state", entry);
+  }
   const entry = pkg === "core" && subpath === "server" ? "server.browser" : (subpath ?? "index");
   return join(import.meta.dir, "vendor/reactre/packages", pkg!, "src", `${entry}.ts`);
 }
@@ -18,18 +29,20 @@ function source(path: string): string {
 export const reactreSources: BunPlugin = {
   name: "reactre-sources",
   setup(build) {
-    build.onResolve({ filter: imports }, ({ path }) => ({ path: source(path) }));
+    build.onResolve({ filter: imports }, ({ path }) => ({
+      path: source(path),
+    }));
   },
 };
 
 function compiler(): BunPlugin {
   const dir = import.meta.dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const filter = new RegExp(`^${dir}/(?:src|test-fixtures|e2e)/.*\\.[jt]sx?$`);
+  const filter = new RegExp(`^${dir}/(?:src|test-fixtures|e2e)/(?!.*\\.machine\\.ts$).*\\.[jt]sx?$`);
   return reactreCompiler({ filter });
 }
 
 export function reactre(): BunPlugin[] {
-  return [reactreSources, compiler()];
+  return [reactreSources, stateCompiler(false), compiler()];
 }
 
 // Static runtime imports follow the submodule's tsconfig before Bun's resolver
@@ -74,11 +87,34 @@ export function registerReactreTests(): void {
   plugin({
     name: "reactre-test-sources",
     setup(build) {
-      build.onLoad({ filter: /\/vendor\/reactre\/packages\/(?:core|dom)\/src\/.*\.ts$/ }, async ({ path }) => ({
-        contents: runtimeImports(await Bun.file(path).text()),
-        loader: "ts",
-      }));
+      build.onLoad(
+        {
+          filter: /\/vendor\/reactre\/packages\/(?:core|dom|state)\/src\/.*\.ts$/,
+        },
+        async ({ path }) => ({
+          contents: runtimeImports(await Bun.file(path).text()),
+          loader: "ts",
+        }),
+      );
     },
   });
+  plugin(stateCompiler(true));
   plugin(compiler());
+}
+
+// Machine modules contain no JSX. Both Bun.build and Bun's runtime load them
+// through the same upstream compiler before the TSX plugin claims app files.
+function stateCompiler(dev: boolean): BunPlugin {
+  return {
+    name: "herdsman-state",
+    setup(build) {
+      build.onLoad({ filter: /\.machine\.ts$/ }, async ({ path }) => {
+        const code = await Bun.file(path).text();
+        return {
+          contents: runtimeImports(compileState(path, code, { dev })?.code ?? code),
+          loader: "ts",
+        };
+      });
+    },
+  };
 }

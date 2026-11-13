@@ -7,29 +7,33 @@ git submodule update --init web/vendor/reactre
 make web
 ```
 
-`vendor/reactre` is the upstream Reactre Git submodule, pinned to **v0.0.4**,
-commit `2f72c572568b8bbc704cc65a1ec1fabd0ae5e57b`. It retains upstream's
-[Apache-2.0 license](vendor/reactre/LICENSE). There is no web package manifest
-or package install. The build reads `packages/core/src`, `packages/dom/src`,
-and `packages/compiler/src` directly from the submodule. Do not run its build
-or install its dependencies; its `dist` and `node_modules` are unused.
+`vendor/reactre` is the upstream Reactre Git submodule, pinned to main commit
+`8bae29b9fce00ab1e192f906e15191c6057550d7` (the merged state package). It retains
+upstream's [Apache-2.0 license](vendor/reactre/LICENSE). Core, DOM and state
+runtime/compiler sources are read directly; upstream `dist` and `node_modules`
+are unused. Do not install or build the upstream checkout.
+
+The state compiler's OXC 0.156.0 parser is also vendored. The build and checks
+install only local file dependencies with `bun install --offline --frozen-lockfile`.
+No registry or warmed cache is needed. See [parser provenance and updates](vendor/oxc/VENDOR.md)
+for licenses, checksums, source revision and supported build hosts.
 
 ## Author components in TSX
 
 Write `.tsx` files with normal Reactre imports:
 
 ```tsx
-import { signal } from "@reactre/core";
+import { valueState } from "./state/value.ts";
 
 export function Counter() {
-  const [count, setCount] = signal(0);
+  const [count, setCount] = valueState(0);
   return <button onClick={() => setCount((n) => n + 1)}>{count()}</button>;
 }
 ```
 
 Mount a component with `render(Component, element)`, or `attach(Component, element)`
-when the caller needs a disposer. Components run once; use signals for values
-that change. Reactre's TSX compiler creates templates and reactive bindings
+when the caller needs a disposer. Components run once; actors own changing values,
+while memos derive values and effects connect resources. The TSX compiler creates templates and bindings
 during `make web`. Author no generated JavaScript or template helper calls.
 
 `tsconfig.json` resolves Reactre's types to source. `reactre.ts` resolves the
@@ -55,12 +59,20 @@ excluded from the app's checks.
 ## Application ownership and state
 
 The app, dialogs, route creation, terminal panel and docs controls use native
-Reactre TSX components. `app-state.ts` holds the shared immutable signal
-snapshot. View state factories keep tab data across navigation; components
-read their signals and own their effects, observers and event handlers.
-Closing a dialog or leaving a screen disposes its owner. Async controllers
-ignore responses after disposal and reject stale responses for an older
-selection. There is no global refresh or hand-written DOM reconciliation.
+Reactre TSX components. All application and UI state belongs to `@reactre/state`
+actors. `app-state.ts` exposes the shared snapshot; `state/value.ts` owns local
+data; `state/request.ts` owns async phases/results. Specialized `.machine.ts`
+modules model workflows. Core signals in the three subscription adapters only
+notify readers. Never add a competing store, context container or direct core
+signal to a component.
+
+Cached controllers use explicit `controllerScope` owners. Tab exit cancels work;
+replacing a controller disposes it. Requests abort on replacement/cleanup and
+drop late results. URL/browser storage are persistence boundaries. SDK values
+cross a data-only JSON boundary because current upstream contracts exclude
+optional fields, dynamic records and collections; decoded reads are immutable.
+See [the ownership inventory and statecharts](../docs/adr/0032-actor-owned-web-state.md)
+for cleanup rules, diagrams and tradeoffs.
 
 Use `<For>` for keyed DOM lists. When server snapshots replace row objects,
 use Reactre's keyed `map` to expose a stable accessor per row, then render those
@@ -81,8 +93,9 @@ tests still run in `make web-check`; production app code does not import it.
 
 ## Update Reactre
 
-Fetch upstream tags in `vendor/reactre`, check out a reviewed tag there, then
+Fetch upstream in `vendor/reactre`, check out a reviewed exact commit there, then
 stage the new submodule commit in the parent repository. Update the version
-and commit documented here and run `make web-check web` before committing.
+and commit documented here, review the state compiler's parser requirement,
+and run `make web-check web-e2e build` before committing.
 After pulling a parent commit that updates Reactre, run
 `git submodule update --init web/vendor/reactre` to use its recorded version.

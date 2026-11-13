@@ -1,6 +1,5 @@
-import { signal } from "@reactre/core";
-
 import { nextView } from "./model.ts";
+import { valueState } from "./state/value.ts";
 import type { Channel, Entry, State } from "./types.ts";
 import type { Theme } from "./ui.ts";
 
@@ -29,9 +28,9 @@ export interface App {
   channel: Channel | null;
 }
 
-/** Immutable application snapshots, read and updated through a Reactre signal. */
+/** Immutable application snapshots, owned by a Reactre state actor. */
 export function createAppState(initial: App, navigate: (view: View, push: boolean) => void = () => {}) {
-  const [state, setState] = signal(initial);
+  const [state, setState] = valueState(initial);
   return {
     state,
     get app(): App {
@@ -46,7 +45,10 @@ export function createAppState(initial: App, navigate: (view: View, push: boolea
       setState((app) => ({ ...app, view }));
     },
     addEntries(entries: Entry[]): void {
-      setState((app) => ({ ...app, entries: [...app.entries, ...entries].slice(-400) }));
+      setState((app) => ({
+        ...app,
+        entries: [...app.entries, ...entries].slice(-400),
+      }));
     },
   };
 }

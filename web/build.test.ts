@@ -80,3 +80,58 @@ test("browser bundles compile .ts memo options and select the browser server ent
     await rm(outdir, { recursive: true, force: true });
   }
 });
+
+// Build-only upstreams have a separate budget from the Go modules. These are
+// all published packages of one project; none is browser/runtime code.
+const buildDependencyBudget = [
+  "oxc-parser",
+  "@oxc-project/types",
+  ...["darwin-arm64", "darwin-x64", "linux-arm64-gnu", "linux-arm64-musl", "linux-x64-gnu", "linux-x64-musl"].map(
+    (target) => `@oxc-parser/binding-${target}`,
+  ),
+];
+test("the state compiler uses only the reviewed, checksummed local parser packages", async () => {
+  const { readdirSync, readFileSync } = await import("node:fs");
+  const { createHash } = await import("node:crypto");
+  const root = join(import.meta.dir, "vendor/oxc");
+  const pins = JSON.parse(readFileSync(join(root, "provenance.json"), "utf8")) as {
+    name: string;
+    version: string;
+    directory: string;
+    integrity: string;
+  }[];
+  expect(pins.map((pin) => pin.name).sort()).toEqual([...buildDependencyBudget].sort());
+  expect(readFileSync(join(root, "LICENSE"), "utf8")).toBe(readFileSync(join(root, "oxc-parser/LICENSE"), "utf8"));
+  const files = JSON.parse(readFileSync(join(root, "sha256.json"), "utf8")) as Record<string, string>;
+  const actual = pins
+    .flatMap((pin) =>
+      readdirSync(join(root, pin.directory), { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => join(entry.parentPath, entry.name).slice(root.length + 1)),
+    )
+    .sort();
+  expect(actual).toEqual(Object.keys(files).sort());
+  for (const [file, sum] of Object.entries(files))
+    expect(
+      createHash("sha256")
+        .update(readFileSync(join(root, file)))
+        .digest("hex"),
+    ).toBe(sum);
+  for (const pin of pins) {
+    expect(pin.version).toBe("0.156.0");
+    expect(pin.integrity).toMatch(/^sha512-/);
+    expect(JSON.parse(readFileSync(join(root, pin.directory, "package.json"), "utf8")).license).toBe("MIT");
+  }
+  const manifest = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8")) as {
+    devDependencies: Record<string, string>;
+    overrides: Record<string, string>;
+  };
+  expect(Object.keys(manifest.devDependencies)).toEqual(["oxc-parser"]);
+  expect(Object.keys(manifest.overrides).sort()).toEqual(
+    buildDependencyBudget.filter((name) => name !== "oxc-parser").sort(),
+  );
+  for (const [name, path] of Object.entries({ ...manifest.devDependencies, ...manifest.overrides })) {
+    const pin = pins.find((pin) => pin.name === name)!;
+    expect(path).toBe(`file:vendor/oxc/${pin.directory}`);
+  }
+});

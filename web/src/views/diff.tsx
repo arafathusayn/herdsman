@@ -1,4 +1,4 @@
-import { For, Match, memo, onCleanup, Show, signal, Switch } from "@reactre/core";
+import { For, Match, memo, onCleanup, Show, Switch } from "@reactre/core";
 import { map } from "@reactre/core/features/lists";
 
 import { AuthError, routeDiff } from "../api.ts";
@@ -7,6 +7,10 @@ import { Icon } from "../components/icons.tsx";
 import { parseSection, splitPatch } from "../diff.ts";
 import { fuzzy } from "../fuzzy.ts";
 import { icons } from "../icons.ts";
+import { createPoll } from "../state/poll.ts";
+import { createRequest } from "../state/request.ts";
+import { valueState } from "../state/value.ts";
+import { errorMessage } from "../state/wire.ts";
 import { store } from "../store.ts";
 import type { DiffFile, DiffSource } from "../types.ts";
 import { toast } from "../ui.ts";
@@ -27,7 +31,7 @@ function loadLayout(): Layout {
   }
 }
 
-const [layout, setLayout] = signal(loadLayout());
+const [layout, setLayout] = valueState(loadLayout());
 
 const statusName: Record<string, string> = {
   A: "Added",
@@ -72,32 +76,28 @@ export interface DiffState {
 }
 
 export function createDiffState(routeId: string): DiffState {
-  const [state, setState] = signal<DiffSnapshot>({
-    sources: null,
-    error: "",
+  const [local, setState] = valueState<Omit<DiffSnapshot, "sources" | "error">>({
     sourceId: "",
     file: "",
     query: "",
     narrow: false,
     showAll: false,
   });
-  const set = (patch: Partial<DiffSnapshot>): void => setState((current) => ({ ...current, ...patch }));
-  let timer = 0,
-    loading = false;
+  const request = createRequest(async (_, signal) => routeDiff(routeId, signal));
+  const state = (): DiffSnapshot => ({
+    ...local(),
+    sources: request.data() ?? null,
+    error: request.error() === undefined ? "" : errorMessage(request.error()),
+  });
+  const set = (patch: Partial<Omit<DiffSnapshot, "sources" | "error">>): void =>
+    setState((current) => ({ ...current, ...patch }));
   let search: HTMLInputElement | null = null;
-  const load = async (): Promise<void> => {
-    if (loading) return;
-    loading = true;
-    try {
-      const sources = await routeDiff(routeId);
-      if (state().error || JSON.stringify(sources) !== JSON.stringify(state().sources)) set({ sources, error: "" });
-    } catch (error) {
-      if (error instanceof AuthError) location.reload();
-      set({ error: error instanceof Error ? error.message : String(error) });
-    } finally {
-      loading = false;
-    }
-  };
+  const poll = createPoll(async (signal) => {
+    if (document.visibilityState !== "visible") return pollMs;
+    const outcome = await request.run(undefined);
+    if (!signal.aborted && outcome.status === "failed" && outcome.error instanceof AuthError) location.reload();
+    return pollMs;
+  }, pollMs);
   return {
     routeId,
     state,
@@ -111,16 +111,10 @@ export function createDiffState(routeId: string): DiffState {
       if (state().narrow !== narrow) set({ narrow });
     },
     all: () => set({ showAll: true }),
-    start: () => {
-      if (timer) return;
-      void load();
-      timer = window.setInterval(() => {
-        if (document.visibilityState === "visible") void load();
-      }, pollMs);
-    },
+    start: poll.start,
     stop: () => {
-      window.clearInterval(timer);
-      timer = 0;
+      poll.stop();
+      request.cancel();
     },
     search: (input) => {
       search = input;
@@ -231,8 +225,16 @@ function FileRow(props: { file: DiffFile; hits: number[]; source: string; curren
 }
 
 const layouts: readonly { id: Layout; label: string; tip: string }[] = [
-  { id: "inline", label: "Inline", tip: "Removed and added lines in one column" },
-  { id: "split", label: "Side by side", tip: "The old file on the left, the new one on the right" },
+  {
+    id: "inline",
+    label: "Inline",
+    tip: "Removed and added lines in one column",
+  },
+  {
+    id: "split",
+    label: "Side by side",
+    tip: "The old file on the left, the new one on the right",
+  },
 ];
 function LayoutSwitch() {
   const choose = (value: Layout): void => {
@@ -319,8 +321,18 @@ export function DiffView(props: { state: DiffState }) {
   const query = memo(() => snapshot().query.trim());
   const matches = memo(() =>
     files()
-      .map((file) => ({ file, match: query() ? fuzzy(query(), file.path) : { hits: [], score: 0 } }))
-      .filter((entry): entry is { file: DiffFile; match: NonNullable<ReturnType<typeof fuzzy>> } => !!entry.match)
+      .map((file) => ({
+        file,
+        match: query() ? fuzzy(query(), file.path) : { hits: [], score: 0 },
+      }))
+      .filter(
+        (
+          entry,
+        ): entry is {
+          file: DiffFile;
+          match: NonNullable<ReturnType<typeof fuzzy>>;
+        } => !!entry.match,
+      )
       .sort((left, right) => right.match.score - left.match.score),
   );
   const sources = map(
@@ -328,7 +340,9 @@ export function DiffView(props: { state: DiffState }) {
     (source) => source,
     { keyed: (source) => source.id },
   );
-  const rows = map(matches, (entry) => entry, { keyed: (entry) => entry.file.path });
+  const rows = map(matches, (entry) => entry, {
+    keyed: (entry) => entry.file.path,
+  });
   const patch = memo(() => source()?.diff?.patch ?? "");
   const sections = memo(() => splitPatch(patch()));
   const section = memo(() => sections().get(selected()?.path ?? ""));

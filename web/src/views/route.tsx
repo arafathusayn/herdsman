@@ -6,6 +6,7 @@ import { Icon } from "../components/icons.tsx";
 import { Pill } from "../components/status.tsx";
 import { icons } from "../icons.ts";
 import { ago, checklistCounts, type Index, type Member } from "../model.ts";
+import { valueState } from "../state/value.ts";
 import type { App, RouteTab } from "../store.ts";
 import type { CheckItem, Entry, Pane, Route, Snapshot, Workspace } from "../types.ts";
 import { toast } from "../ui.ts";
@@ -290,6 +291,7 @@ function AgentGroupView(props: { group: AgentGroup; app: App }) {
   );
 }
 function IdleWorkspace(props: { workspace: Workspace; panes: Pane[]; idx: Index; open: (pane: string) => void }) {
+  const [expanded, setExpanded] = valueState(false);
   const tabs = memo(() => new Set(props.panes.map((pane) => pane.tab_id)).size);
   const rows = map(
     () => props.panes,
@@ -297,7 +299,11 @@ function IdleWorkspace(props: { workspace: Workspace; panes: Pane[]; idx: Index;
     { keyed: (pane) => pane.pane_id },
   );
   return (
-    <details class="workspace-row">
+    <details
+      class="workspace-row"
+      open={expanded()}
+      onToggle={(event) => setExpanded((event.currentTarget as HTMLDetailsElement).open)}
+    >
       <summary
         title={`${props.workspace.label || props.workspace.workspace_id}: ${tabs()} tabs, ${props.panes.length} panes, no agent`}
       >
@@ -323,6 +329,7 @@ function IdleWorkspace(props: { workspace: Workspace; panes: Pane[]; idx: Index;
 }
 
 export function SessionView(props: { app: App; snap: Snapshot; idx: Index; open: (pane: string) => void }) {
+  const [expanded, setExpanded] = valueState(false);
   const data = memo(() => {
     const snap = props.snap;
     const only = (snap.workspaces ?? []).find((workspace) => workspace.workspace_id === props.app.view.ws);
@@ -381,7 +388,11 @@ export function SessionView(props: { app: App; snap: Snapshot; idx: Index; open:
           {(group) => <AgentGroupView group={group()} app={props.app} />}
         </For>
         <Show when={data().idle.length > 0}>
-          <details class="group shells">
+          <details
+            class="group shells"
+            open={expanded()}
+            onToggle={(event) => setExpanded((event.currentTarget as HTMLDetailsElement).open)}
+          >
             <summary>{`Workspaces without an agent (${data().idle.length})`}</summary>
             <div class="shell-list">
               <For each={idle()} key={(group) => group().workspace.workspace_id}>

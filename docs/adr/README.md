@@ -39,3 +39,4 @@ One record per decision. `TestEveryDecisionRecordIsIndexed` keeps the set comple
 | [0033](0033-instructions-reach-agents-as-notices.md) | Instructions reach agents as notices |
 | [0034](0034-a-worker-socket-for-notice-calls.md) | A worker socket for notice calls |
 | [0035](0035-optional-core-views-in-the-tui.md) | Optional core views in the Herdr TUI |
+| [0036](0036-actor-owned-web-state.md) | Actors own web application and UI state |

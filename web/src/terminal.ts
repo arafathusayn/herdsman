@@ -1,3 +1,10 @@
+import { createActor } from "@reactre/state";
+
+import { inputQueueMachine } from "./state/input-queue.machine.ts";
+import { registerRequest } from "./state/request-service.ts";
+import { valueState } from "./state/value.ts";
+import { decodeValue, encodeValue } from "./state/wire.ts";
+
 // Terminal mode: turns browser keys and wheel turns into herdr input, and
 // sends it in order without flooding the server.
 
@@ -145,7 +152,13 @@ const pxPerLine = 33;
  * a trackpad's small steps add up. Positive lines scroll back (wheel up).
  */
 export class WheelLines {
-  private acc = 0;
+  private readonly amount = valueState(0);
+  private get acc() {
+    return this.amount[0]();
+  }
+  private set acc(value: number) {
+    this.amount[1](value);
+  }
 
   add(deltaY: number, deltaMode: number, pageLines: number): number {
     const lines = deltaMode === 1 ? deltaY : deltaMode === 2 ? deltaY * pageLines : deltaY / pxPerLine;
@@ -162,38 +175,21 @@ export class WheelLines {
  * typing and wheel spins become a few requests, not hundreds.
  */
 export class InputQueue {
-  private queue: Input[] = [];
-  private busy = false;
-
-  private readonly send: (i: Input) => Promise<boolean>;
-  constructor(send: (i: Input) => Promise<boolean>) {
-    this.send = send;
+  private readonly actor;
+  private readonly service;
+  constructor(send: (input: Input, signal: AbortSignal) => Promise<boolean>) {
+    this.service = registerRequest(async (json, signal) => {
+      signal.throwIfAborted();
+      const input = decodeValue<Input>(json);
+      return String("lines" in input && input.lines === 0 ? true : await send(input, signal));
+    });
+    this.actor = createActor(inputQueueMachine, { input: { service: this.service.id } });
   }
-
-  push(i: Input): void {
-    const last = this.queue.at(-1);
-    if (last && "text" in last && "text" in i) last.text += i.text;
-    else if (last && "keys" in last && "keys" in i) last.keys.push(...i.keys);
-    else if (last && "lines" in last && "lines" in i) {
-      last.lines += i.lines;
-      last.col = i.col;
-      last.row = i.row;
-    } else this.queue.push("keys" in i ? { keys: [...i.keys] } : { ...i });
-    void this.flush();
+  push(input: Input): void {
+    this.actor.send({ type: "push", input: encodeValue(input) });
   }
-
-  private async flush(): Promise<void> {
-    if (this.busy) return;
-    this.busy = true;
-    try {
-      for (let i = this.queue.shift(); i; i = this.queue.shift()) {
-        if ("lines" in i && i.lines === 0) continue;
-        // A failed send drops what queued after it: typing on past an
-        // error would land keys out of context.
-        if (!(await this.send(i))) this.queue = [];
-      }
-    } finally {
-      this.busy = false;
-    }
+  stop(): void {
+    this.actor.stop();
+    this.service.dispose();
   }
 }

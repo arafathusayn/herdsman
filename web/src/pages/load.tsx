@@ -1,11 +1,12 @@
 // What every page shares: one read of the SDK with its loading and failure
 // states, and the notice for an action the daemon has no method for yet.
-import { onCleanup, Show, signal } from "@reactre/core";
+import { Show } from "@reactre/core";
 import type { Child } from "@reactre/core/jsx-runtime";
 
 import { Icon } from "../components/icons.tsx";
 import { icons } from "../icons.ts";
 import { explain, notServed } from "../sdk/index.ts";
+import { createRequest } from "../state/request.ts";
 
 export interface Loaded<T> {
   data: () => T | undefined;
@@ -15,42 +16,23 @@ export interface Loaded<T> {
 }
 
 /** Reads now and on each `reload`. Only the newest read may change the page. */
-export function load<T>(read: () => Promise<T>): Loaded<T> {
-  const [data, setData] = signal<T | undefined>(undefined);
-  const [error, setError] = signal<unknown>(undefined);
-  const [loading, setLoading] = signal(true);
-  let latest = 0;
-  onCleanup(() => {
-    latest = -1;
-  });
+export function load<T>(read: (signal: AbortSignal) => Promise<T>): Loaded<T> {
+  const request = createRequest<void, T>((_, signal) => read(signal));
   const reload = async () => {
-    if (latest < 0) return;
-    const mine = ++latest;
-    setLoading(true);
-    try {
-      const value = await read();
-      if (mine !== latest) return;
-      setData(() => value);
-      setError(undefined);
-    } catch (failure) {
-      if (mine !== latest) return;
-      setError(() => failure);
-    }
-    setLoading(false);
+    await request.run(undefined);
   };
   void reload();
-  return { data, error, loading, reload };
+  return {
+    data: request.data,
+    error: request.error,
+    loading: request.loading,
+    reload,
+  };
 }
 
 /** The text of the field an event was bound on. Not for list rows, whose events are delegated. */
 export function fieldValue(event: Event): string {
   return (event.currentTarget as HTMLInputElement).value;
-}
-
-/** Repeats `run` until the page goes away. */
-export function every(ms: number, run: () => unknown): void {
-  const timer = setInterval(run, ms);
-  onCleanup(() => clearInterval(timer));
 }
 
 export function PageFrame(props: { title: string; lead: string; children: Child }) {

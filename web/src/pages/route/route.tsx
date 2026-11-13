@@ -1,8 +1,10 @@
 import type { Execution } from "@herdsman/sdk/herdsman/daemon/v1/runtime";
-import { For, Show, signal } from "@reactre/core";
+import { For, Show } from "@reactre/core";
 
 import { explain, services } from "../../sdk/index.ts";
-import { Async, every, Failure, fieldValue, load, NotServed, PageFrame } from "../load.tsx";
+import { createPoll } from "../../state/poll.ts";
+import { valueState } from "../../state/value.ts";
+import { Async, Failure, fieldValue, load, NotServed, PageFrame } from "../load.tsx";
 
 const refreshMs = 5000;
 
@@ -32,7 +34,7 @@ interface Rows {
 }
 
 function rowStore(): Rows {
-  const [rows, setRows] = signal<Record<string, RowState>>({});
+  const [rows, setRows] = valueState<Record<string, RowState>>({});
   return {
     get: (id) => rows()[id] ?? blankRow,
     set: (id, change) => setRows((all) => ({ ...all, [id]: { ...(all[id] ?? blankRow), ...change } })),
@@ -40,13 +42,17 @@ function rowStore(): Rows {
 }
 
 export function RoutesPage() {
-  const state = load(() => services().routes.list({}));
-  const executions = load(() => services().runtime.listExecutions({}));
+  const state = load((signal) => services().routes.list({}, { signal }));
+  const executions = load((signal) => services().runtime.listExecutions({}, { signal }));
   const rows = rowStore();
-  every(refreshMs, () => {
-    void state.reload();
-    void executions.reload();
-  });
+  const poll = createPoll(async () => {
+    await Promise.all([
+      state.loading() ? undefined : state.reload(),
+      executions.loading() ? undefined : executions.reload(),
+    ]);
+    return refreshMs;
+  }, refreshMs);
+  poll.start();
   return (
     <PageFrame
       title="Route starts"

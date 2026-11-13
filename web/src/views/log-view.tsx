@@ -1,7 +1,9 @@
-import { effect, For, memo, Show, signal, untrack } from "@reactre/core";
+import { effect, For, memo, Show, untrack } from "@reactre/core";
 import { map } from "@reactre/core/features/lists";
 
 import { routeRunState } from "../api.ts";
+import { createRequest } from "../state/request.ts";
+import { valueState } from "../state/value.ts";
 import type { LogLine, Route } from "../types.ts";
 import { toast } from "../ui.ts";
 import { keyedOnce } from "./route.tsx";
@@ -9,6 +11,7 @@ import { keyedOnce } from "./route.tsx";
 export type PageReader = (
   route: string,
   before: number,
+  signal?: AbortSignal,
 ) => Promise<{ lines: LogLine[]; older: number; history?: string | undefined }>;
 interface Seen {
   lo: number;
@@ -16,8 +19,7 @@ interface Seen {
   history: string | undefined;
 }
 export const SEEN_ROUTES = 4;
-const [seen, setSeen] = signal(new Map<string, Seen>());
-const [loading, setLoading] = signal(new Set<string>());
+const [seen, setSeen] = valueState(new Map<string, Seen>());
 
 function remember(id: string, value: Seen): void {
   setSeen((current) => {
@@ -34,7 +36,12 @@ function joined(route: Route, previous: Seen | undefined): Seen & { cached: bool
   const at = route.older_run_state ?? 0;
   const from = route.run_state_from ?? 0;
   const end = previous ? previous.lo + previous.lines.length : 0;
-  const fresh = { lo: at, lines: newest, history: route.history, cached: false };
+  const fresh = {
+    lo: at,
+    lines: newest,
+    history: route.history,
+    cached: false,
+  };
   if (!previous || previous.history !== route.history || previous.lo > at || end < at || end > at + newest.length)
     return fresh;
   for (let index = at; index < end; index++) {
@@ -88,15 +95,20 @@ export function LogView(props: { route: Route; page?: PageReader; failed?: (mess
   const from = memo(() => props.route.run_state_from ?? 0);
   const paged = memo(() => shown().lo > from() || from() > 0 || shown().cached);
   const failed = (message: string): void => (props.failed ?? ((text) => toast(text, "error")))(message);
+  const request = createRequest(async (input: { route: string; before: number }, signal) =>
+    (props.page ?? routeRunState)(input.route, input.before, signal),
+  );
   const more = async (): Promise<void> => {
     const route = props.route;
-    if (loading().has(route.id)) return;
+    if (request.loading()) return;
     const current = shown();
-    setLoading((value) => new Set([...value, route.id]));
     // Track live appends even while the first page is still on its way.
     remember(route.id, current);
     try {
-      const page = await (props.page ?? routeRunState)(route.id, current.lo);
+      const outcome = await request.run({ route: route.id, before: current.lo });
+      if (outcome.status === "cancelled") return;
+      if (outcome.status === "failed") throw outcome.error;
+      const page = outcome.value;
       if (page.history !== route.history) {
         failed("Could not load earlier lines: the route file changed: reload the route");
         return;
@@ -104,15 +116,13 @@ export function LogView(props: { route: Route; page?: PageReader; failed?: (mess
       const latest = seen().get(route.id);
       // An incompatible snapshot or cache eviction invalidates this request.
       if (!latest || latest.history !== route.history || latest.lo !== current.lo) return;
-      remember(route.id, { lo: page.older, lines: [...page.lines, ...latest.lines], history: route.history });
+      remember(route.id, {
+        lo: page.older,
+        lines: [...page.lines, ...latest.lines],
+        history: route.history,
+      });
     } catch (error) {
       failed(`Could not load earlier lines: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setLoading((value) => {
-        const next = new Set(value);
-        next.delete(route.id);
-        return next;
-      });
     }
   };
   return (
@@ -131,7 +141,7 @@ export function LogView(props: { route: Route; page?: PageReader; failed?: (mess
             <button
               class="btn ghost"
               type="button"
-              disabled={loading().has(props.route.id)}
+              disabled={request.loading()}
               onClick={() => void more()}
             >{`Show ${shown().lo - from()} earlier lines`}</button>
           </Show>
