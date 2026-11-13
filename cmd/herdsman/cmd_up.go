@@ -517,7 +517,11 @@ func upConfirmTTY(start *daemonv1.RouteStart) (bool, error) {
 		return false, err
 	}
 	defer tty.Close()
-	peers, err := os.ReadFile(filepath.Join(start.GetInbox(), "peers"))
+	pairPath := filepath.Join(start.GetInbox(), "peers")
+	if start.GetBackend() == "herdr-core" {
+		pairPath = filepath.Join(start.GetFolder(), ".steps", "core-pair.json.pending")
+	}
+	peers, err := os.ReadFile(pairPath)
 	if err != nil {
 		return false, err
 	}

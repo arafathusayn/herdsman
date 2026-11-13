@@ -41,8 +41,7 @@ func coreDaemon(t *testing.T) (*coretest.World, string, string) {
 	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
-	// herdr-core ships as an experiment: the config beside the repository opts
-	// in, as a person would.
+	// The deprecated experiment key remains accepted for older config files.
 	optIn := "[runtime]\nbackend = \"herdr-core\"\n\n[runtime.core]\nexperimental = true\n"
 	if err := os.WriteFile(filepath.Join(base, "herdsman.config.toml"), []byte(optIn), 0o600); err != nil {
 		t.Fatal(err)
@@ -71,6 +70,47 @@ func coreDaemon(t *testing.T) (*coretest.World, string, string) {
 	t.Setenv("HERDR_PANE_ID", "")
 	t.Chdir(repo)
 	return w, private, repo
+}
+
+// Exercise the production CLI dispatch, not a direct call to coreTask: a
+// fresh installation must launch task agents on core without an opt-in file.
+func TestNewAgentUsesDefaultCoreThroughTheCLI(t *testing.T) {
+	w, _, repo := coreDaemon(t)
+	w.OpenApp()
+	if err := os.Remove(filepath.Join(filepath.Dir(repo), "herdsman.config.toml")); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"branch", "-M", "main"}, {"-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-qm", "fixture"}} {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git: %v %s", err, out)
+		}
+	}
+	var out, errOut bytes.Buffer
+	if code := runNew([]string{"probe", "--base", "main", "--no-setup", "--agent", "claude", "--json", "--", "fix the fixture"}, nil, &out, &errOut); code != 0 {
+		t.Fatalf("new failed (%d): %s %s", code, &out, &errOut)
+	}
+	var result struct {
+		AgentName string `json:"agent_name"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil || result.AgentName != "probe" {
+		t.Fatalf("new did not launch its agent: %s (%v)", &out, err)
+	}
+	service, closeService, err := dialRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeService()
+	rows, err := service.ListExecutions(context.Background(), &daemonv1.RuntimeServiceListExecutionsRequest{})
+	if err != nil || len(rows.GetExecutions()) != 1 {
+		t.Fatalf("task has no durable execution: %v %v", rows, err)
+	}
+	rec := rows.GetExecutions()[0]
+	if rec.GetRef().GetBackend() != "herdr-core" || rec.GetAppBinding().GetVisibility() != "verified" || rec.GetNotices().GetIssued() != 1 {
+		t.Fatalf("task lacks core, main-app visibility or its notice: %v", rec)
+	}
+	if w.Core.Calls("terminal.send")+w.Core.Calls("terminal.keys") != 0 {
+		t.Fatal("task launch typed into the terminal")
+	}
 }
 
 // runtimeEventsOf reads the daemon's runtime topic through the SDK.
@@ -118,10 +158,13 @@ func TestUpOnCoreThroughTheCLI(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("a core start with a person's wait reported success:\n%s", out)
 	}
-	for _, want := range []string{"needs a person (codex, attended):", core.AttentionStartLine, core.AttentionNoticeWaiting, core.AttentionInterrupted, core.AttentionGoalPaused} {
+	for _, want := range []string{"needs a person (codex, attended):", core.AttentionStartLine, core.AttentionInterrupted, core.AttentionGoalPaused} {
 		if !strings.Contains(out, want) {
 			t.Errorf("up did not name %q before the start:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, core.AttentionNoticeWaiting+":") {
+		t.Fatal("native queue wakes were reported as manual-only")
 	}
 	if !strings.Contains(errOut, "waiting for a person") || !strings.Contains(errOut, core.CodeNeedsAttention) {
 		t.Fatalf("the halt: %q", errOut)

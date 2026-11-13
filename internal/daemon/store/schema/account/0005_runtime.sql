@@ -4,12 +4,9 @@
 -- live beside their journal, in the shape of the route store's executions.
 --
 -- The default is written once: herdr-tui with source existing-store when this
--- migration upgrades a store that already existed, and herdr-tui with source
--- new-store when the store is created new. herdr-core ships as an experiment
--- in this release (spec section 5, the fallback), so no store selects it
--- unasked; the record, not a constant, is what a later release that selects
--- core for new installations writes for the stores it creates. migrate()
--- tells the two apart through temp.migration_run.
+-- migration upgrades a store that already existed, and herdr-core with source
+-- new-store when the store is created new. Existing installation choices are
+-- never rewritten. migrate() tells the two apart through temp.migration_run.
 CREATE TABLE installation (
   k TEXT PRIMARY KEY CHECK (k IN ('runtime.backend')),
   v TEXT NOT NULL CHECK (v IN ('herdr-core','herdr-tui')),
@@ -18,7 +15,7 @@ CREATE TABLE installation (
 ) STRICT;
 INSERT INTO installation(k, v, source, written_at)
 SELECT 'runtime.backend',
-       'herdr-tui',
+       CASE WHEN fresh = 1 THEN 'herdr-core' ELSE 'herdr-tui' END,
        CASE WHEN fresh = 1 THEN 'new-store' ELSE 'existing-store' END,
        CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
 FROM temp.migration_run;

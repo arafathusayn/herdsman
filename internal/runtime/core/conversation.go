@@ -149,7 +149,11 @@ func FindConversation(roots SessionRoots, q ConversationQuery) ConversationLooku
 	case 0:
 		return ConversationLookup{Status: ConversationAbsent, Detail: "no " + a.Kind + " session of " + q.Cwd + " was written since the execution registered"}
 	case 1:
-		return ConversationLookup{Status: ConversationFound, Conversation: found[0].conv}
+		conv := found[0].conv
+		if len(q.Marks) > 0 && holdsMark(found[0].file, q.Marks) {
+			conv.Provenance += ProvenanceByNotice
+		}
+		return ConversationLookup{Status: ConversationFound, Conversation: conv}
 	}
 	ids := make([]string, 0, len(found))
 	for _, c := range found {

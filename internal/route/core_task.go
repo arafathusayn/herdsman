@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/arafathusayn/herdsman/internal/herdrapp"
 	"github.com/arafathusayn/herdsman/internal/launch"
 	"github.com/arafathusayn/herdsman/internal/notice"
+	"github.com/arafathusayn/herdsman/internal/profile"
 	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
 )
@@ -24,7 +26,10 @@ type TaskLaunch struct {
 	// Task and Branch name the task; they are the agent's environment.
 	Task, Branch string
 	// Command is the harness's words; its first names the kind.
-	Command []string
+	Command         []string
+	Env             map[string]string
+	Prelude         []launch.Step
+	RestrictedRoots *profile.Roots
 	// Prompt is the task's first instruction, issued as a task notice.
 	Prompt string
 	// StateDir is where the launch's step markers go.
@@ -62,24 +67,37 @@ func LaunchTask(ctx context.Context, cp *core.Provider, q TaskLaunch) (TaskStart
 	if err := a.CheckArgs(q.Command[1:]); err != nil {
 		return out, err
 	}
-	intent := TaskNoticeKey(q.Repo, q.Task)
-	exec := runtime.NewExecutionID()
-	if rec, ok, err := cp.Records.ByIntent(ctx, intent); err != nil {
+	intent, exec, err := taskAttempt(ctx, cp, q)
+	if err != nil {
 		return out, err
-	} else if ok && rec.Desired == runtime.DesiredRunning {
-		exec = rec.ID
 	}
-	stepsDir, err := launch.StepsDir(q.StateDir, "task-"+strings.ReplaceAll(q.Task, "/", "-"))
+
+	stepsDir, err := launch.StepsDir(q.StateDir, "task-"+strings.ReplaceAll(q.Task, "/", "-")+"-"+exec)
 	if err != nil {
 		return out, err
 	}
 	d := launch.CoreDescriptor{
 		Intent: intent, Execution: exec, Kind: kind, Harness: append([]string(nil), q.Command...), StepsDir: stepsDir, Cwd: q.Path,
-		Env:   map[string]string{"HERDSMAN_TASK": q.Task, "HERDSMAN_BRANCH": q.Branch, "HERDSMAN_WORKTREE_PATH": q.Path},
+		Env:   mergeEnv(q.Env, map[string]string{"HERDSMAN_TASK": q.Task, "HERDSMAN_BRANCH": q.Branch, "HERDSMAN_WORKTREE_PATH": q.Path}),
 		Login: q.Core.Login, LoginFrom: q.Core.LoginFrom, NoticeSocket: q.Core.NoticeSocket,
 	}
+	for i, step := range q.Prelude {
+		d.Prelude = append(d.Prelude, launch.NumberedStep{N: i + 1, Step: step})
+	}
+
+	if q.RestrictedRoots != nil {
+		if err := profile.CheckCoreHarnessArgs(d.Harness[1:]); err != nil {
+			return out, err
+		}
+		d.Sandbox, err = profile.CoreSandboxConfig(kind, *q.RestrictedRoots, q.Core.NoticeSocket)
+		if err != nil {
+			return out, err
+		}
+	}
+
 	scope := "task-" + q.Task
 	l := core.Launch{
+		CoreSocket: q.Core.Socket, CoreBinary: q.Core.Endpoint.Binary,
 		Intent: intent, Execution: exec, Owner: q.Core.Owner, RouteID: core.UUIDOf(q.Core.Owner, q.Repo, scope), AgentID: core.UUIDOf(q.Core.Owner, q.Repo, scope, q.Task),
 		Repo: q.Repo, AgentName: q.Task, Role: "task-agent", Kind: kind,
 		Placement: herdrapp.PlacementIDs{Space: core.OpaqueID(q.Core.Owner, q.Repo, "tasks", "space"), Tab: core.OpaqueID("tab", exec)},
@@ -146,11 +164,11 @@ func LaunchTask(ctx context.Context, cp *core.Provider, q TaskLaunch) (TaskStart
 		// prompt: a retry finds it there and issues nothing new.
 		if n, ok, err := cp.Notices.ByKey(LegacyTaskNoticeKey(q.Repo, q.Task)); err != nil {
 			return out, err
-		} else if ok {
+		} else if ok && n.Execution == rec.ID {
 			out.Notice = n.ID
 			return out, nil
 		}
-		key := TaskNoticeKey(q.Repo, q.Task)
+		key := intent
 		if _, err := cp.Deliver(ctx, runtime.Target{ExecutionID: rec.ID}, runtime.Delivery{Text: q.Prompt, Kind: notice.KindTask, Key: key, Issuer: "task:" + q.Task}); err != nil {
 			return out, err
 		}
@@ -170,3 +188,39 @@ func TaskNoticeKey(repo, task string) string { return "task:" + repo + ":" + tas
 // LegacyTaskNoticeKey is the doubled form earlier builds journaled
 // (task:task:<repo>:<task>). It is read, never written.
 func LegacyTaskNoticeKey(repo, task string) string { return "task:" + TaskNoticeKey(repo, task) }
+
+// taskAttempt keeps retries on their reserved execution, but a stopped task
+// starts a new generation with its own notice and prelude markers.
+func taskAttempt(ctx context.Context, cp *core.Provider, q TaskLaunch) (string, string, error) {
+	base := TaskNoticeKey(q.Repo, q.Task)
+	rows, err := cp.Records.List(ctx, q.Repo, "")
+	if err != nil {
+		return "", "", err
+	}
+	var latest *runtime.Execution
+	for i := range rows {
+		e := &rows[i]
+		if e.Backend == runtime.BackendCore && e.Repo == q.Repo && e.Route == "" && e.Agent == q.Task && e.Role == "task-agent" &&
+			(e.LaunchIntent == base || strings.HasPrefix(e.LaunchIntent, base+":attempt:")) && (latest == nil || e.Generation > latest.Generation) {
+			latest = e
+		}
+	}
+	if latest == nil {
+		return base, runtime.NewExecutionID(), nil
+	}
+	if latest.Desired == runtime.DesiredRunning {
+		return latest.LaunchIntent, latest.ID, nil
+	}
+	procs := cp.Procs
+	if procs == nil {
+		procs = core.SystemProcs{}
+	}
+	alive, err := core.Alive(procs, latest.Evidence)
+	if err != nil {
+		return "", "", err
+	}
+	if alive {
+		return "", "", errors.New("the task's previous execution is still alive; finish stopping it before starting another")
+	}
+	return base + ":attempt:" + strconv.FormatInt(latest.Generation+1, 10), runtime.NewExecutionID(), nil
+}

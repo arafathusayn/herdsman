@@ -58,7 +58,6 @@ func TestRuntimeDoctorReportsEverySectionSixteenItem(t *testing.T) {
 	checks := doctorChecks(t, h, repo)
 	for name, words := range map[string][]string{
 		"selection":          {"ok: herdr-core, from route"},
-		"experiment":         {"warn: ", runtime.ExperimentLabel},
 		"core-endpoint":      {"ok: "},
 		"core-version":       {"is not the tested version", "tested: herdr-core " + hc.TestedVersion + " at protocol generation 1, herdr-app 0.1.15"},
 		"app-binding":        {"ok: ", "verified 20"},

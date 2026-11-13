@@ -6,10 +6,13 @@ Run one agent launch in a herdr-core terminal; herdr-core runs it, not a person.
 
 ```text
 usage: herdsman launch --socket <path> --intent <id>
+       herdsman launch --view <descriptor>
 
 The program herdr-core starts in the terminal of a reserved launch. It proves
 to the daemon that it is that terminal's process, runs the prelude, registers,
 and then becomes the harness. A person never runs it; up does, through core.
+The optional TUI view uses --view to attach a helper to an existing execution.
+Closing that view never stops the execution.
 
 exit codes:
   0   never: on success the process becomes the harness

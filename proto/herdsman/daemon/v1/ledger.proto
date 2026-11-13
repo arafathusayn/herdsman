@@ -7,6 +7,9 @@ option go_package = "github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1";
 
 // LedgerService reports what a task runs and records what it owns.
 service LedgerService {
+  // NewWorktree creates a task worktree and launches its agent using the
+  // daemon's selected runtime, registration and durable execution store.
+  rpc NewWorktree(NewWorktreeRequest) returns (NewWorktreeResponse);
   // Resources lists a task's records and the live plan built from them.
   rpc Resources(ResourcesRequest) returns (ResourcesResponse);
   // Plan builds the teardown plan for a task without acting on it.
@@ -21,6 +24,24 @@ service LedgerService {
   rpc RegisterResource(RegisterResourceRequest) returns (RegisterResourceResponse);
   // LedgerHealth lists what a folder's task still runs that it alone owns.
   rpc LedgerHealth(LedgerHealthRequest) returns (LedgerHealthResponse);
+}
+
+message NewWorktreeRequest {
+  string dir = 1;
+  string task = 2;
+  string base = 3;
+  string from = 4;
+  string type = 5;
+  string agent = 6;
+  string prompt = 7;
+  bool no_setup = 8;
+  bool clobber = 9;
+  bool integrator = 10;
+}
+
+message NewWorktreeResponse {
+  // The versioned worktree result document shared with the CLI's JSON output.
+  bytes result = 1;
 }
 
 message ResourcesRequest {

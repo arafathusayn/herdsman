@@ -7,7 +7,6 @@ Most of herdsman follows the compatibility promise in [ADR 0003](adr/0003-public
 | Plugin protocol | Not released yet | To be set when it ships |
 | `herdsman eval` and its reports | `--experimental-eval` on every use | `eval/<version>`, in the `experimental` field of the JSON report |
 | `[automations]` in the configuration, `herdsman daemon automations` | `experimental = true` in the section, and a person approves each action | `automations/0.1.0`, on each line of the action log |
-| The herdr-core backend: `backend = "herdr-core"` in `[runtime]`, `herdsman up --backend herdr-core` | `experimental = true` in `[runtime.core]` beside the backend; a new route on core without it is refused with `backend_experimental` | `runtime.core/0.1.0`, in the line each run prints on stderr, in `herdsman runtime doctor`, and on each execution record it writes (`experiment` in `herdsman runtime ls --json`) |
 
 ## What experimental means
 
@@ -17,7 +16,7 @@ Most of herdsman follows the compatibility promise in [ADR 0003](adr/0003-public
 - **It can change incompatibly between minor releases.** No old name is kept as an alias. The release notes describe each change, and stored data gets a migration or written manual steps.
 - **Nothing stable relies on it.** You can ignore this page and lose nothing.
 
-For the herdr-core backend the marker gates new routes only: a route already started on core keeps running and resuming there if the marker is later removed. Every installation, new or existing, defaults to the Herdr TUI while core is an experiment. Going back to the Herdr TUI is `backend = "herdr-tui"` in `[runtime]`. The other keys of `[runtime.core]` and `[runtime.app]` (the endpoint, the timeouts and the app) belong to the experiment and can change with it. The Herdr TUI view of core agents is not in this release at all: `enabled = true` in `[runtime.tui_view]` is refused.
+The herdr-core backend has graduated: new installations select it by default. The former `[runtime.core] experimental` marker is accepted without effect. Existing installations and routes retain their recorded backend. See [ADR 0032](adr/0032-herdr-core-runs-the-agents-of-new-installations.md).
 
 ## When a surface becomes stable
 

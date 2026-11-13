@@ -20,8 +20,8 @@ func installation(t *testing.T, c Conn) (string, string) {
 }
 
 // Gate "Upgrade": a store that already existed keeps the Herdr TUI, and a
-// store this version creates also starts on the TUI while herdr-core ships as
-// an experiment; the source still tells the two apart.
+// store this version creates starts on core. Each stored choice survives an
+// upgrade or restart, including an explicit choice of the optional TUI.
 func TestInstallationDefaultIsWrittenOnceByTheMigration(t *testing.T) {
 	for _, v := range []int{1, 4} {
 		p := loadFixture(t, v, KindAccount)
@@ -40,7 +40,7 @@ func TestInstallationDefaultIsWrittenOnceByTheMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b, s := installation(t, c); b != "herdr-tui" || s != DefaultFromNewStore {
+	if b, s := installation(t, c); b != "herdr-core" || s != DefaultFromNewStore {
 		t.Fatalf("a new store has %s from %s", b, s)
 	}
 	_ = c.Close()
@@ -51,14 +51,14 @@ func TestInstallationDefaultIsWrittenOnceByTheMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	if b, s := installation(t, c); b != "herdr-tui" || s != DefaultFromNewStore {
+	if b, s := installation(t, c); b != "herdr-core" || s != DefaultFromNewStore {
 		t.Fatalf("reopened as %s from %s", b, s)
 	}
-	prev, err := SetInstallationDefault(c, "herdr-core", 5)
-	if err != nil || prev != "herdr-tui" {
+	prev, err := SetInstallationDefault(c, "herdr-tui", 5)
+	if err != nil || prev != "herdr-core" {
 		t.Fatalf("set: %q %v", prev, err)
 	}
-	if b, s := installation(t, c); b != "herdr-core" || s != DefaultSet {
+	if b, s := installation(t, c); b != "herdr-tui" || s != DefaultSet {
 		t.Fatalf("after set: %s from %s", b, s)
 	}
 	if _, err := SetInstallationDefault(c, "herdr-gui", 6); err == nil {
@@ -228,5 +228,36 @@ func TestRouteKeepsItsBackend(t *testing.T) {
 	}
 	if b, _, _, _ := RouteRuntime(c); b != "herdr-tui" {
 		t.Fatalf("backend %s", b)
+	}
+}
+
+// Registration evidence must survive persistence and stale observer writes.
+func TestExecutionSealsRegistrationEvidence(t *testing.T) {
+	for _, kind := range []Kind{KindAccount, KindRoute} {
+		t.Run(string(kind), func(t *testing.T) {
+			c := openKind(t, kind)
+			e := execution("11111111-1111-4111-8111-111111111111", "launch")
+			e.ArgvDigest, e.PolicyDigest = "planned-argv", "planned-policy"
+			e.AppBinding = `{"core_id":"core-1","socket":"/srv/core.sock","binary":"/opt/hc"}`
+			if _, err := PutExecution(c, e, 1); err != nil {
+				t.Fatal(err)
+			}
+			stale := e
+			e.PID, e.ProcessStart, e.InitialCreatedMS = 42, "process-start", 123
+			e.LaunchGuard, e.ArgvDigest, e.PolicyDigest = "registered time", "resolved-argv", "resolved-policy"
+			if _, err := PutExecution(c, e, 2); err != nil {
+				t.Fatal(err)
+			}
+			// Even a replacement PID cannot inherit the registered execution.
+			stale.PID, stale.ProcessStart = 99, "replacement"
+			stale.AppBinding = `{"core_id":"core-1","visibility":"verified"}`
+			if _, err := PutExecution(c, stale, 3); err != nil {
+				t.Fatal(err)
+			}
+			got, _, err := ExecutionByID(c, e.ID)
+			if err != nil || got.PID != 42 || got.ProcessStart != e.ProcessStart || got.InitialCreatedMS != 123 || got.LaunchGuard != e.LaunchGuard || got.ArgvDigest != e.ArgvDigest || got.PolicyDigest != e.PolicyDigest || !strings.Contains(got.AppBinding, `"socket":"/srv/core.sock"`) {
+				t.Fatalf("lost registration: %+v %v", got, err)
+			}
+		})
 	}
 }

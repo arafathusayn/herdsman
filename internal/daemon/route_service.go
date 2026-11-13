@@ -431,9 +431,16 @@ func startOf(op *ops.Operation) *daemonv1.RouteStart {
 	}
 	if facts.Inbox != "" {
 		sum, approved, err := route.PairState(facts.Inbox)
+		if route.BackendOf(op) == runtime.BackendCore {
+			sum, approved, err = route.CorePairState(facts.Folder)
+		}
 		if err == nil {
 			pair := &daemonv1.PairStatus{Checksum: sum, Approved: approved}
-			if record := filepath.Join(facts.Inbox, "pair-approval.json"); approved {
+			record := filepath.Join(facts.Inbox, "pair-approval.json")
+			if route.BackendOf(op) == runtime.BackendCore {
+				record = filepath.Join(facts.Folder, ".steps", "core-pair.json")
+			}
+			if approved {
 				if _, err := os.Stat(record); err == nil {
 					pair.Record = record
 				}

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/coreview"
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/hc"
 	"github.com/arafathusayn/herdsman/internal/herdrapp"
@@ -78,6 +79,7 @@ type coreRuntime struct {
 	cfg      CoreConfig
 	owner    string
 	records  core.Records
+	views    *coreview.Manager
 	app      *herdrapp.App
 	bindings core.Bindings
 
@@ -145,6 +147,11 @@ func (d *Daemon) startCore(ctx context.Context) error {
 	}
 	c := &coreRuntime{d: d, ctx: ctx, cfg: cfg, owner: owner, records: storeRecords{d}, app: herdrapp.New(cfg.App, cfg.AppHome),
 		bindings: &core.FileBindings{Path: filepath.Join(d.daemonDir(), "core-bindings.json")}, reconcilers: map[string]*core.Reconciler{}}
+	c.views = &coreview.Manager{Root: filepath.Join(d.daemonDir(), "core-views"), Helper: d.cfg.Executable}
+	if !cfg.NoReconcile {
+		d.bg.Add(1)
+		go func() { defer d.bg.Done(); c.runViews(ctx) }()
+	}
 	c.services = &coreServices{c: c, poll: cfg.ServicePoll, running: map[string]*coreService{}}
 	d.mu.Lock()
 	d.core = c
@@ -159,14 +166,7 @@ func (d *Daemon) startCore(ctx context.Context) error {
 			if e.Backend != runtime.BackendCore || e.EndpointID == "" {
 				continue
 			}
-			endpoint := c.endpointOf(e.Repo, e.Route)
-			if e.Route == "" {
-				// A task agent has no route start: its repository's
-				// config chose its endpoint when it launched.
-				if rc, err := d.readRuntimeConfig(e.Repo, ""); err == nil {
-					endpoint = rc.Settings.Socket.Value
-				}
-			}
+			endpoint := c.executionEndpoint(e).Socket
 			if !watched[endpoint] {
 				watched[endpoint] = true
 				c.watch(ctx, endpoint)

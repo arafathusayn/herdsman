@@ -13,11 +13,11 @@ func TestResolveFollowsTheSpecOrder(t *testing.T) {
 		in   Inputs
 		want Selection
 	}{
-		{"installation", Inputs{Installation: BackendCore, Experimental: true}, Selection{Backend: BackendCore, Source: SourceInstallation, Experimental: true}},
+		{"installation", Inputs{Installation: BackendCore, Experimental: true}, Selection{Backend: BackendCore, Source: SourceInstallation}},
 		{"config over installation", Inputs{Config: BackendTUI, ConfigPath: "/srv/c.toml", Installation: BackendCore}, Selection{Backend: BackendTUI, Source: SourceConfig, ConfigPath: "/srv/c.toml"}},
-		{"flag over config", Inputs{Flag: BackendCore, Config: BackendTUI, Installation: BackendTUI, Experimental: true}, Selection{Backend: BackendCore, Source: SourceFlag, Experimental: true}},
+		{"flag over config", Inputs{Flag: BackendCore, Config: BackendTUI, Installation: BackendTUI, Experimental: true}, Selection{Backend: BackendCore, Source: SourceFlag}},
 		{"route over everything", Inputs{Config: BackendCore, Installation: BackendCore, Persisted: BackendTUI}, Selection{Backend: BackendTUI, Source: SourceRoute}},
-		{"core route without the marker", Inputs{Installation: BackendTUI, Persisted: BackendCore}, Selection{Backend: BackendCore, Source: SourceRoute, Experimental: true}},
+		{"core route without the marker", Inputs{Installation: BackendTUI, Persisted: BackendCore}, Selection{Backend: BackendCore, Source: SourceRoute}},
 		{"route with its own flag", Inputs{Flag: BackendTUI, Persisted: BackendTUI}, Selection{Backend: BackendTUI, Source: SourceRoute}},
 	}
 	for _, c := range cases {
@@ -50,31 +50,29 @@ func TestResolveRefusesAMigrationAndAMisspelling(t *testing.T) {
 	}
 }
 
-// The fallback of spec section 5: while core is an experiment, a new route
-// selects it only with experimental = true in [runtime.core], whichever source
-// names it, and the refusal names the marker and the way back.
-func TestCoreNeedsTheExperimentMarkerForANewRoute(t *testing.T) {
-	if !CoreExperimental {
-		t.Skip("herdr-core has graduated")
-	}
+// Core is selected without the former experimental marker, from every source.
+// Keeping that marker in an older config must not change selection or warnings.
+func TestCoreNeedsNoExperimentMarker(t *testing.T) {
 	for name, in := range map[string]Inputs{
 		"flag":         {Flag: BackendCore, Installation: BackendTUI},
 		"config":       {Config: BackendCore, ConfigPath: "/srv/c.toml", Installation: BackendTUI},
 		"installation": {Installation: BackendCore},
 	} {
-		_, err := Resolve(in)
-		if CodeOf(err) != CodeBackendExperimental || !strings.Contains(err.Error(), "experimental = true in [runtime.core]") ||
-			!strings.Contains(err.Error(), `backend = "herdr-tui"`) {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			without, err := Resolve(in)
+			if err != nil || without.Backend != BackendCore || without.Experimental {
+				t.Fatalf("without marker: %+v %v", without, err)
+			}
+			in.Experimental = true
+			with, err := Resolve(in)
+			if err != nil || with != without {
+				t.Fatalf("legacy marker changed selection: %+v %v", with, err)
+			}
+		})
 	}
-	// The TUI never needs it, and the marker alone selects nothing.
 	sel, err := Resolve(Inputs{Installation: BackendTUI, Experimental: true})
 	if err != nil || sel.Backend != BackendTUI || sel.Experimental {
-		t.Fatalf("%+v %v", sel, err)
-	}
-	if !strings.Contains(ExperimentNotice, ExperimentLabel) || !strings.Contains(ExperimentNotice, BackendTUI) {
-		t.Fatalf("notice %q", ExperimentNotice)
+		t.Fatalf("explicit TUI: %+v %v", sel, err)
 	}
 }
 

@@ -37,6 +37,7 @@ of the current folder. --teardown also stops the route's task processes.
 type controlFlags struct {
 	yes, dryRun, force, keepFolder, keepWorktrees, teardown bool
 	note                                                    string
+	confirmed                                               string
 	grace                                                   int
 }
 
@@ -202,6 +203,22 @@ func runControl(v controlVerb, args []string, stdout, stderr io.Writer) int {
 	res, err := v.call(ctx, sdk, id, repo, false, f)
 	if err != nil {
 		return fail(err)
+	}
+	if v.name == "resume" && res.GetState() == "stopped" && strings.Contains(res.GetReason(), "confirm the execution identities") {
+		got, err := sdk.Route.Get(ctx, &daemonv1.RouteServiceGetRequest{Route: id, Repo: repo})
+		if err != nil {
+			return fail(err)
+		}
+		start := got.GetStart()
+		if ok, err := upConfirmTTY(start); err != nil {
+			return fail(err)
+		} else if ok {
+			f.confirmed = start.GetPair().GetChecksum()
+			res, err = v.call(ctx, sdk, id, repo, false, f)
+			if err != nil {
+				return fail(err)
+			}
+		}
 	}
 	switch res.GetState() {
 	case "done":

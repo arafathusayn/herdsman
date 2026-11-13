@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -94,8 +95,31 @@ func PutExecution(c Conn, e Execution, now int64) (Execution, error) {
 		}
 		if found {
 			e.ID, e.Generation, e.Created, e.SchemaVersion, e.Experiment = prev.ID, prev.Generation, prev.Created, prev.SchemaVersion, prev.Experiment
-			if e.PID == 0 {
+			if prev.PID != 0 || e.PID == 0 {
 				e.PID, e.ProcessStart = prev.PID, prev.ProcessStart
+			}
+			// Registration seals the effective command and policy. Later
+			// observers cannot replace identity or erase launch evidence.
+			if prev.LaunchGuard != "" || e.LaunchGuard == "" {
+				e.LaunchGuard, e.ArgvDigest, e.PolicyDigest = prev.LaunchGuard, prev.ArgvDigest, prev.PolicyDigest
+			}
+			if prev.InitialCreatedMS != 0 {
+				e.InitialCreatedMS = prev.InitialCreatedMS
+			}
+			if e.AppBinding == "" {
+				e.AppBinding = prev.AppBinding
+			} else if prev.AppBinding != "" {
+				var old, next map[string]json.RawMessage
+				if json.Unmarshal([]byte(prev.AppBinding), &old) == nil && json.Unmarshal([]byte(e.AppBinding), &next) == nil && next != nil {
+					for _, key := range []string{"socket", "binary"} {
+						if value, ok := old[key]; ok {
+							next[key] = value
+						}
+					}
+					if raw, err := json.Marshal(next); err == nil {
+						e.AppBinding = string(raw)
+					}
+				}
 			}
 			// Conversation evidence, once recorded, is never cleared by a
 			// writer that did not read it.
@@ -106,12 +130,12 @@ func PutExecution(c Conn, e Execution, now int64) (Execution, error) {
 			_, err := tx.Exec(`UPDATE executions SET endpoint_id = ?, terminal_address = ?, pane = ?, observed_pid = ?,
 				observed_process_start = ?, harness_version = ?, native_conversation = ?, desired_state = ?, process_state = ?,
 				readiness = ?, program_status = ?, raw_program_status = ?, visibility = ?, app_state = ?, orchestration = ?,
-				task_outcome = ?, observed_at = ?, app_binding = ?, tui_binding = ?, last_verified_at = ?, updated_at = ?
+				task_outcome = ?, observed_at = ?, app_binding = ?, tui_binding = ?, last_verified_at = ?, updated_at = ?, initial_created_ms = ?, launch_guard_registration = ?, argv_digest = ?, policy_digest = ?
 				WHERE execution_id = ?`,
 				e.EndpointID, e.TerminalAddress, e.Pane, nullable(e.PID), nullable(e.ProcessStart), e.HarnessVersion,
 				nullable(e.NativeConversation), e.DesiredState, e.Process, e.Readiness, e.Program, e.RawProgram, e.Visibility,
 				e.App, e.Orchestration, e.TaskOutcome, e.ObservedAt, nullable(e.AppBinding), nullable(e.TUIBinding),
-				nullable(e.LastVerifiedAt), e.Updated, e.ID)
+				nullable(e.LastVerifiedAt), e.Updated, nullable(e.InitialCreatedMS), e.LaunchGuard, e.ArgvDigest, e.PolicyDigest, e.ID)
 			return err
 		}
 		var last int64

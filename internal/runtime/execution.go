@@ -133,6 +133,10 @@ const (
 
 // AppBinding is where the native app shows an execution (§7).
 type AppBinding struct {
+	// Socket and Binary retain the launch endpoint for standalone tasks,
+	// which have no route operation journal. They never follow edited config.
+	Socket     string     `json:"socket,omitempty"`
+	Binary     string     `json:"binary,omitempty"`
 	CoreID     string     `json:"core_id"`
 	SpaceID    string     `json:"space_id,omitempty"`
 	TabID      string     `json:"tab_id,omitempty"`

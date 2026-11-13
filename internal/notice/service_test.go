@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -560,8 +561,8 @@ func TestFinalReport(t *testing.T) {
 		t.Fatalf("the wait while stopping: %+v", a)
 	}
 	r, _ := s.Read(ctx, e, "")
-	if r.Notice.ID != n.ID || !r.ClaimedBefore || r.MayContinue {
-		t.Fatalf("read without id returns the open claim first: %+v", r)
+	if r.Notice.ID != f.ID || r.Token == "" || !r.MayContinue {
+		t.Fatalf("read without id must prioritize the final report: %+v", r)
 	}
 	fr, _ := s.Read(ctx, e, f.ID)
 	if fr.Token == "" {
@@ -594,7 +595,9 @@ func TestWaitCapacity(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	w := newWorld()
-	s := New(NewMemStore(), w, Config{Poll: 5 * time.Second, Now: w.clock, MaxWaits: 40,
+	// Keep the original polls alive while reconnects run even under the
+	// race detector on a busy machine. Cancellation ends them below.
+	s := New(NewMemStore(), w, Config{Poll: time.Minute, Now: w.clock, MaxWaits: 40,
 		Sleep: func(_ context.Context, d time.Duration) error { w.advance(d); return nil }})
 	defer s.Close()
 	var execs []runtime.Execution
@@ -631,12 +634,20 @@ func TestWaitCapacity(t *testing.T) {
 		t.Fatalf("read and ack took %s beside the waits", time.Since(start))
 	}
 	// A hundred reconnects of one execution leave one slot.
+	var reconnects sync.WaitGroup
 	for range 100 {
 		c, stop := context.WithCancel(ctx)
-		go func() { _, _ = s.Wait(c, last, WaitRequest{WaitID: "again"}) }()
+		reconnects.Add(1)
+		go func() {
+			defer reconnects.Done()
+			_, _ = s.Wait(c, last, WaitRequest{WaitID: "again"})
+		}()
 		time.Sleep(time.Millisecond)
 		stop()
 	}
+	// A canceled reconnect must finish before the persistent final poll is
+	// installed; otherwise that late request can replace it legitimately.
+	reconnects.Wait()
 	deadline := time.Now().Add(2 * time.Second)
 	for s.Waits() > 40 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
@@ -646,9 +657,17 @@ func TestWaitCapacity(t *testing.T) {
 	}
 	// The budget is full only once every slot is taken: one more execution
 	// is refused.
-	for s.Waits() < 40 {
-		go func() { _, _ = s.Wait(ctx, last, WaitRequest{WaitID: "again"}) }()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = s.Wait(ctx, last, WaitRequest{WaitID: "again"})
+	}()
+	deadline = time.Now().Add(5 * time.Second)
+	for s.Waits() < 40 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
+	}
+	if s.Waits() != 40 {
+		t.Fatal("the persistent polls did not fill the budget")
 	}
 	extra := w.add("e-extra", "claude")
 	if _, err := s.Wait(ctx, extra, WaitRequest{WaitID: "x"}); !errors.Is(err, ErrBusy) {
@@ -748,5 +767,119 @@ func TestTraceSeesEachStepOnce(t *testing.T) {
 	}
 	if got := steps[2].end.Sub(steps[2].start); got != 2*time.Second {
 		t.Errorf("handling timed %s from claim", got)
+	}
+}
+
+// Acknowledging work must atomically retain its continuation even under a
+// hold. Both payloads may independently reach their documented size limit.
+func TestTaskContinuationSurvivesHeldAckAndRestart(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld()
+	db := NewMemStore()
+	s := newService(t, w, db)
+	e := w.add("e-a", "claude")
+	approved(t, s, e)
+	content, record := strings.Repeat("c", MaxContent), strings.Repeat("r", MaxRecord)
+	n, err := s.Issue(ctx, IssueRequest{Key: "task", Kind: KindTask, Execution: e.ID, Content: content})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := s.Read(ctx, e, n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Hold(e.Repo, e.Route, true, "pause"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Ack(ctx, e, n.ID, claim.Token, OutcomeInterrupted, record); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s = newService(t, w, db)
+	list, err := s.List(e.ID)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("lost continuation: %d %v", len(list), err)
+	}
+	follow := list[1]
+	if follow.State != StateIssued || follow.Content != content || !strings.Contains(follow.Previous, record) {
+		t.Fatal("continuation lost content or record")
+	}
+	if got, err := s.Read(ctx, e, follow.ID); err != nil || got.Refused != GateHeld {
+		t.Fatalf("held continuation: %+v %v", got, err)
+	}
+	if _, err := s.Ack(ctx, e, n.ID, claim.Token, OutcomeInterrupted, record); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Hold(e.Repo, e.Route, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Read(ctx, e, follow.ID)
+	if err != nil || got.Token == "" || !strings.Contains(got.Content, record) || !strings.Contains(got.Content, content) {
+		t.Fatal("continuation omitted instructions or prior work")
+	}
+	list, _ = s.List(e.ID)
+	if len(list) != 2 {
+		t.Fatalf("duplicate continuation: %d", len(list))
+	}
+}
+
+func TestRepeatedClaimRechecksAuthorization(t *testing.T) {
+	for _, tc := range []struct {
+		name, gate string
+		change     func(*runtime.Execution)
+	}{
+		{"generation", GateIdentity, func(e *runtime.Execution) { e.Generation++ }},
+		{"endpoint", GateIdentity, func(e *runtime.Execution) { e.EndpointID = "replacement-core" }},
+		{"policy", GatePolicy, func(e *runtime.Execution) { e.PolicyDigest = "changed" }},
+		{"visibility", GateVisibility, func(e *runtime.Execution) { e.Observation.Visibility = runtime.VisibilityMissing }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			w := newWorld()
+			s := newService(t, w, NewMemStore())
+			e := w.add("e-a", "claude")
+			approved(t, s, e)
+			n := issue(t, s, e.ID, "claim")
+			first, err := s.Read(ctx, e, n.ID)
+			if err != nil || first.Token == "" {
+				t.Fatalf("claim: %+v %v", first, err)
+			}
+			w.edit(e.ID, tc.change)
+			got, err := s.Read(ctx, w.get(e.ID), n.ID)
+			if err != nil || got.MayContinue || got.Refused != tc.gate {
+				t.Fatalf("stale authorization: %+v %v", got, err)
+			}
+			// Closing the original claim must still be possible under the hold.
+			if _, err := s.Ack(ctx, e, n.ID, first.Token, OutcomeInterrupted, "stopped"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestRepeatedFinalReportRespectsDeadline(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld()
+	s := newService(t, w, NewMemStore())
+	e := w.add("e-a", "claude")
+	approved(t, s, e)
+	if err := s.Stopping(e.Repo, e.Route, "stop", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.IssueFinalReport(ctx, FinalRequest{Key: "final", Execution: e.ID, StopOp: "stop", Grace: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.Read(ctx, e, n.ID)
+	if err != nil || first.Token == "" {
+		t.Fatal("report was not claimed")
+	}
+	w.advance(2 * time.Minute)
+	again, err := s.Read(ctx, e, "")
+	if err != nil || again.MayContinue || again.Refused != GateDeadline {
+		t.Fatalf("expired report: %+v %v", again, err)
+	}
+	if _, err := s.Ack(ctx, e, n.ID, first.Token, OutcomeCompleted, "report sent"); err != nil {
+		t.Fatal(err)
 	}
 }

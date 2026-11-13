@@ -100,12 +100,7 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 	if q.Core == nil {
 		return nil, runtime.Unavailable(runtime.BackendCore, "in this daemon: no launch socket is configured")
 	}
-	if profile.ShapeFor(q.Policy) == profile.ShapeOwnClone {
-		return nil, fmt.Errorf("the restricted profile does not launch on herdr-core: no restricted worker is qualified on core; set backend = %q in [runtime]", runtime.BackendTUI)
-	}
-	if q.PairManual {
-		return nil, fmt.Errorf("--pair manual is not available on herdr-core yet; run up from a terminal with --pair auto, or set backend = %q", runtime.BackendTUI)
-	}
+	restricted := profile.ShapeFor(q.Policy) == profile.ShapeOwnClone
 	for _, c := range coordinators {
 		a, err := core.AdapterFor(c.kind)
 		if err != nil {
@@ -113,6 +108,11 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 		}
 		if err := a.CheckArgs(c.spec.Command[1:]); err != nil {
 			return nil, fmt.Errorf("%s: %w", c.role, err)
+		}
+		if restricted {
+			if err := profile.CheckCoreHarnessArgs(c.spec.Command[1:]); err != nil {
+				return nil, err
+			}
 		}
 	}
 	stepsDir, err := launch.StepsDir(p.Folder, StepsOperation)
@@ -159,12 +159,21 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 	var intents []string
 	var briefs []func()
 	for _, c := range coordinators {
+		var sandbox *sandboxData
+		cwd := coreCwd(c, q)
+		if restricted {
+			cwd = filepath.Join(filepath.Dir(q.Repo), filepath.Base(q.Repo)+".worktrees", q.Route+"-"+c.role)
+			sandbox = &sandboxData{Root: cwd, Grants: []string{p.Folder}, Protected: slices.Concat([]string{filepath.Join(q.Repo, ".git")}, q.Protected, q.PolicyFiles)}
+			fmt.Fprintf(text, "restricted %s clone: %s; worker socket: %s\n", c.role, cwd, q.Core.NoticeSocket)
+			clone := cwd
+			add("clone the repository for the "+c.role, effectClone, "clone:"+c.role, ops.RetryIdempotent, with(func(d *stepData) { d.Clone, d.Branch = clone, q.Route+"-"+c.role }))
+		}
 		exec := runtime.NewExecutionID()
 		intent := "up:" + q.Repo + ":" + q.Route + ":" + c.name + ":" + exec
 		intents = append(intents, intent)
 		d := launch.CoreDescriptor{
 			Intent: intent, Execution: exec, Kind: c.kind, Harness: append([]string(nil), c.spec.Command...), StepsDir: stepsDir,
-			TimeoutMS: c.spec.Timeout().Milliseconds(), Cwd: coreCwd(c, q), Env: mergeEnv(channelEnv, partyEnv(q, c), c.spec.Env),
+			TimeoutMS: c.spec.Timeout().Milliseconds(), Cwd: cwd, Env: mergeEnv(channelEnv, partyEnv(q, c), c.spec.Env),
 			Login: q.Core.Login, LoginFrom: q.Core.LoginFrom, SecretRefs: q.SecretRefs, NoticeSocket: q.Core.NoticeSocket,
 		}
 		for _, step := range c.spec.Prelude {
@@ -172,6 +181,7 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 			d.Prelude = append(d.Prelude, launch.NumberedStep{N: n, Step: step})
 		}
 		l := core.Launch{
+			CoreSocket: q.Core.Socket, CoreBinary: q.Core.Endpoint.Binary,
 			Intent: intent, Execution: exec, Owner: q.Core.Owner, RouteID: routeID, AgentID: core.UUIDOf(q.Core.Owner, q.Repo, q.Route, c.name),
 			Repo: q.Repo, RouteName: q.Route, AgentName: c.name, Role: c.role, Kind: c.kind,
 			Placement: herdrapp.PlacementIDs{Space: space, Tab: core.OpaqueID("tab", exec)}, Name: core.CoreName(q.Route, c.role, exec),
@@ -186,7 +196,9 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 			if edit != nil {
 				edit(&cd)
 			}
-			return with(func(sd *stepData) { sd.Name, sd.Kind, sd.Label, sd.Core = c.name, c.kind, c.role, &cd })
+			return with(func(sd *stepData) {
+				sd.Name, sd.Kind, sd.Label, sd.Core, sd.Sandbox = c.name, c.kind, c.role, &cd, sandbox
+			})
 		}
 		fmt.Fprintf(text, "\n%s: %s (kind %s)\ncommand: %s\nexecution: %s\n", c.role, c.name, c.kind, c.line, exec)
 		for _, s := range d.Prelude {
@@ -204,7 +216,7 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 		// pair is enrolled.
 		a, _ := core.AdapterFor(c.kind)
 		fmt.Fprintf(text, "start line (version %d): submitted by a person in the app\n", a.StartLineVersion)
-		if a.Attended {
+		if a.Facts.Wake == core.WakePerson {
 			fmt.Fprintf(text, "attended: %s is woken by a person on herdr-core; each notice for it waits for the line %q in its pane\n", c.kind, notice.AttendedLine)
 		}
 		writePersonSteps(text, a)
@@ -220,6 +232,7 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 	}
 	add("enroll the agents", effectCoreEnroll, "core-enroll:"+p.Key, ops.RetryIdempotent, with(func(d *stepData) {
 		d.Core = &coreData{Intents: intents}
+		d.Manual = q.PairManual
 	}))
 	if !q.NoAdjutant {
 		add("seed the handshake", effectCoreHandshake, "core-handshake:"+p.Inbox, ops.RetryIdempotent, with(func(d *stepData) {
@@ -379,6 +392,16 @@ func applyCoreRegister(ctx context.Context, deps Deps, _ *herdr.Client, d stepDa
 	if err != nil {
 		return err
 	}
+	if d.Sandbox != nil {
+		roots, err := profile.ResolveRoots(profile.RootRequest{Role: profile.RoleImplementer, TaskRoot: d.Sandbox.Root, Grants: d.Sandbox.Grants, Protected: d.Sandbox.Protected})
+		if err != nil {
+			return err
+		}
+		l.Descriptor.Sandbox, err = profile.CoreSandboxConfig(l.Kind, roots, l.Descriptor.NoticeSocket)
+		if err != nil {
+			return err
+		}
+	}
 	_, err = cp.RegisterStep(ctx, l, d.Core.Timeouts)
 	return err
 }
@@ -444,11 +467,15 @@ func lineFile(d stepData) string {
 // harness's start line, which no automation types. A person submits it in
 // the agent's pane and runs up again with --continue, which settles the step.
 func applyCoreAttach(_ context.Context, deps Deps, _ *herdr.Client, d stepData) error {
+	next := "herdsman up " + d.Route + " --continue"
+	if d.Control != nil {
+		next = "herdsman resume " + d.Route
+	}
 	where := fmt.Sprintf("in %s's pane in the herdr app (space %s, tab %s)", d.Name, d.Route, d.Label)
 	// The step is due now: it says so on the event stream as well as in
 	// the start's answer, so a person who watches the stream hears of it.
 	attention := notice.Event{Kind: notice.EventNeedsAttention, Repo: d.Repo, Route: d.Route, Execution: d.Core.Launch.Execution, Reason: core.AttentionStartLine,
-		Detail: fmt.Sprintf("a person submits %s's start line %s, then runs herdsman up %s --continue", d.Name, where, d.Route)}
+		Detail: fmt.Sprintf("a person submits %s's start line %s, then runs %s", d.Name, where, next)}
 	if !d.Core.LineHoldsPrompt {
 		attention.Line = d.Core.Line
 	}
@@ -459,9 +486,9 @@ func applyCoreAttach(_ context.Context, deps Deps, _ *herdr.Client, d stepData) 
 		if err := writeFileNew(lineFile(d), []byte(d.Core.Line+"\n")); err != nil {
 			return err
 		}
-		return &core.Error{Code: core.CodeNeedsAttention, Msg: fmt.Sprintf("submit the start line in %s %s; then run: herdsman up %s --continue", lineFile(d), where, d.Route)}
+		return &core.Error{Code: core.CodeNeedsAttention, Msg: fmt.Sprintf("submit the start line in %s %s; then run: %s", lineFile(d), where, next)}
 	}
-	return &core.Error{Code: core.CodeNeedsAttention, Msg: fmt.Sprintf("submit this start line %s: %s ; then run: herdsman up %s --continue", where, d.Core.Line, d.Route)}
+	return &core.Error{Code: core.CodeNeedsAttention, Msg: fmt.Sprintf("submit this start line %s: %s ; then run: %s", where, d.Core.Line, next)}
 }
 
 func probeCoreAttach(context.Context, Deps, *herdr.Client, stepData) (ops.Verdict, string, error) {
@@ -481,6 +508,32 @@ type pairRecord struct {
 }
 
 func pairPath(d stepData) string { return filepath.Join(d.Folder, ".steps", "core-pair.json") }
+
+// CorePairState reports the exact execution pair awaiting terminal confirmation.
+func CorePairState(folder string) (sum string, approved bool, err error) {
+	path := filepath.Join(folder, ".steps", "core-pair.json")
+	var pending, current pairRecord
+	b, err := os.ReadFile(path + ".pending")
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if err := json.Unmarshal(b, &pending); err != nil {
+		return "", false, err
+	}
+	b, err = os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", false, err
+	}
+	if len(b) > 0 {
+		if err := json.Unmarshal(b, &current); err != nil {
+			return "", false, err
+		}
+	}
+	return pending.Checksum, pending.Checksum != "" && current.Checksum == pending.Checksum, nil
+}
 
 func pairChecksum(execs []runtime.Execution) string {
 	var lines []string
@@ -530,9 +583,27 @@ func applyCoreEnroll(ctx context.Context, deps Deps, _ *herdr.Client, d stepData
 			return enrollChannel(ctx, deps, d, execs)
 		}
 	}
+	pending := pairRecord{Intents: d.Core.Intents, Checksum: sum}
+	for _, e := range execs {
+		pending.Executions = append(pending.Executions, e.ID)
+	}
+	pendingBytes, err := json.Marshal(pending)
+	if err != nil {
+		return err
+	}
+	if err := writeFileNew(pairPath(d)+".pending", pendingBytes); err != nil {
+		return err
+	}
 	caller, ok := deps.Callers.Get(d.Key)
 	if !ok {
 		return fmt.Errorf("the pair is left pending: no caller is known to attest; run herdsman up %s --continue from a terminal", d.Route)
+	}
+	if d.Manual && caller.Confirmed != sum {
+		next := "herdsman up " + d.Route + " --continue --pair manual"
+		if d.Control != nil {
+			next = "herdsman resume " + d.Route
+		}
+		return fmt.Errorf("the pair is left pending: confirm the execution identities (%s); run %s from a terminal", sum, next)
 	}
 	if caller.Execution != "" {
 		return fmt.Errorf("the pair is left pending: up was run by execution %s, an agent; run herdsman up %s --continue from a terminal", caller.Execution, d.Route)
@@ -750,6 +821,8 @@ func interruptOnce(ctx context.Context, cp *core.Provider, d stepData, rec runti
 func (b *controlBuilder) planCoreControl() error {
 	launches := coreLaunches(b.q.Start)
 	attach := map[string]coreData{}
+	sandboxes := map[string]*sandboxData{}
+	manual := false
 	brief := map[string]string{}
 	var enroll *ops.Step
 	for _, st := range b.q.Start.Steps {
@@ -758,12 +831,15 @@ func (b *controlBuilder) planCoreControl() error {
 			return fmt.Errorf("the journaled start: %w", err)
 		}
 		switch st.Effect {
+		case effectCoreSpawn:
+			sandboxes[d.Name] = d.Sandbox
 		case effectCoreAttach:
 			attach[d.Name] = *d.Core
 		case effectCoreBrief:
 			brief[d.Name] = d.Core.Brief
 		case effectCoreEnroll:
 			enroll = &st
+			manual = d.Manual
 		}
 	}
 	for _, l := range launches {
@@ -850,7 +926,10 @@ func (b *controlBuilder) planCoreControl() error {
 					if edit != nil {
 						edit(&c)
 					}
-					return b.with(func(d *stepData) { d.Name, d.Kind, d.Label, d.Core = l.AgentName, l.Kind, l.Role, &c })
+					return b.with(func(d *stepData) {
+						d.Name, d.Kind, d.Label, d.Core = l.AgentName, l.Kind, l.Role, &c
+						d.Sandbox = sandboxes[l.AgentName]
+					})
 				}
 				gen := strconv.Itoa(b.q.Generation)
 				b.addOnce("start "+l.AgentName+" in a core terminal", effectCoreSpawn, "core-spawn:"+l.AgentName+"#"+gen, step(nil))
@@ -869,6 +948,7 @@ func (b *controlBuilder) planCoreControl() error {
 			if enroll != nil {
 				b.add("enroll the agents", effectCoreEnroll, "core-enroll#"+strconv.Itoa(b.q.Generation), b.with(func(d *stepData) {
 					d.Core = &coreData{Intents: intents}
+					d.Manual = manual
 				}))
 			}
 			for _, d := range briefs {

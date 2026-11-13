@@ -784,6 +784,9 @@ func RunningAgents(ctx context.Context, start *ops.Operation) ([]string, error) 
 // ResolveHalted puts a resume that stopped at the pair approval back to run,
 // since a fresh call brings a fresh attestation.
 func ResolveHalted(e *ops.Engine, op *ops.Operation) error {
+	if BackendOf(op) == runtime.BackendCore {
+		return continueCore(e, op)
+	}
 	if op.State != ops.OpStopped && op.State != ops.OpConflict {
 		return nil
 	}

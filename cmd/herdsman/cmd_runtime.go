@@ -27,10 +27,10 @@ const runtimeHelp = `usage: herdsman runtime doctor [--route <route>] [--backend
 
 Where agents run. A backend is herdr-core or herdr-tui. A new route takes
 --backend, then the config file's [runtime] backend, then the installation
-default; a route that exists keeps the backend it started on. herdr-core ships
-as an experiment (runtime.core/0.1.0): a new route there also needs
-experimental = true in [runtime.core], and every installation's default is
-herdr-tui.
+default; a route that exists keeps the backend it started on. New installations
+and new config files select herdr-core. Existing installations keep their
+recorded choice. The optional herdr-tui backend is an explicit configuration
+choice; the native app remains required for core visibility.
 
 exit codes:
   0  done; for doctor, the selected backend can run

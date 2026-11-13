@@ -32,7 +32,7 @@ type runtimeConfig struct {
 // readRuntimeConfig loads the config of a run in repo (configPath first) and
 // resolves its runtime keys against this daemon's defaults. An unknown key, a
 // duration that does not parse, an endpoint that contradicts itself and an
-// enabled TUI view stop here.
+// enabled TUI view without an explicit endpoint stop here.
 func (d *Daemon) readRuntimeConfig(repo, configPath string) (runtimeConfig, error) {
 	in := coreconfig.Input{Getenv: d.cfg.Core.Getenv}
 	if c := d.coreRT(); c != nil {

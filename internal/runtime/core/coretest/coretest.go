@@ -23,6 +23,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdrapp/apptest"
 	"github.com/arafathusayn/herdsman/internal/launch"
 	"github.com/arafathusayn/herdsman/internal/notice"
+	"github.com/arafathusayn/herdsman/internal/profile"
 	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
 	"github.com/arafathusayn/herdsman/internal/sys"
@@ -450,7 +451,7 @@ func (w *World) wrap(ctx context.Context, addr string, argv []string, intent str
 	w.mu.Unlock()
 	w.SetProcess(addr, pid)
 	w.peer.Store(int64(pid))
-	wr := &launch.Wrapper{Socket: socketOf(argv), Intent: intent, Environ: w.Environ, Keychain: w.Keychain, Stderr: &strings.Builder{}, DialWait: 5 * time.Second,
+	wr := &launch.Wrapper{VerifySandbox: profile.CheckCoreLaunch, Socket: socketOf(argv), Intent: intent, Environ: w.Environ, Keychain: w.Keychain, Stderr: &strings.Builder{}, DialWait: 5 * time.Second,
 		Exec: func(argv0 string, args, env []string) error {
 			w.mu.Lock()
 			w.execed[intent] = slices.Clone(args)

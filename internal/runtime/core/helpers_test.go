@@ -16,6 +16,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdrapp"
 	"github.com/arafathusayn/herdsman/internal/herdrapp/apptest"
 	"github.com/arafathusayn/herdsman/internal/launch"
+	"github.com/arafathusayn/herdsman/internal/profile"
 	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
 	"github.com/arafathusayn/herdsman/internal/runtime/core/coretest"
@@ -161,7 +162,7 @@ type wrapperRun struct {
 func (w *world) wrap(l core.Launch, address string, environ []string, keychain mapKeychain) wrapperRun {
 	w.peer.Store(int64(w.pidOf(address)))
 	var out wrapperRun
-	wr := &launch.Wrapper{Socket: w.reg.Path, Intent: l.Intent, Environ: environ, Keychain: keychain, Stderr: &strings.Builder{}, DialWait: 2 * time.Second,
+	wr := &launch.Wrapper{VerifySandbox: profile.CheckCoreLaunch, Socket: w.reg.Path, Intent: l.Intent, Environ: environ, Keychain: keychain, Stderr: &strings.Builder{}, DialWait: 2 * time.Second,
 		Exec: func(argv0 string, argv, env []string) error {
 			out.argv, out.execEnv = slices.Clone(argv), slices.Clone(env)
 			return nil

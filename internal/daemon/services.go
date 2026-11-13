@@ -18,6 +18,7 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	name := daemonv1.MessageServiceName
 	ledgers := ledgerRPC{d: d, inspect: d.cfg.Inspect}
 	return append(eventRPC.procedures(), []rpc.Procedure{
+		rpc.Unary(daemonv1.LedgerServiceName, "NewWorktree", ledgers.NewWorktree),
 		rpc.Unary(daemonv1.LedgerServiceName, "Resources", ledgers.Resources),
 		rpc.Unary(daemonv1.LedgerServiceName, "Plan", ledgers.Plan),
 		rpc.Unary(daemonv1.LedgerServiceName, "AddResource", ledgers.AddResource),

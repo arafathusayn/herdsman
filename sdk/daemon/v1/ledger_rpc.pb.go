@@ -20,6 +20,9 @@ const LedgerServiceName = "herdsman.daemon.v1.LedgerService"
 
 // LedgerService reports what a task runs and records what it owns.
 type LedgerService interface {
+	// NewWorktree creates a task worktree and launches its agent using the
+	// daemon's selected runtime, registration and durable execution store.
+	NewWorktree(context.Context, *NewWorktreeRequest) (*NewWorktreeResponse, error)
 	// Resources lists a task's records and the live plan built from them.
 	Resources(context.Context, *ResourcesRequest) (*ResourcesResponse, error)
 	// Plan builds the teardown plan for a task without acting on it.
@@ -40,6 +43,7 @@ type LedgerService interface {
 // at the server's root or at rpc.BasePath.
 func NewLedgerServiceHandler(impl LedgerService) http.Handler {
 	return rpc.NewMux(
+		rpc.Unary(LedgerServiceName, "NewWorktree", impl.NewWorktree),
 		rpc.Unary(LedgerServiceName, "Resources", impl.Resources),
 		rpc.Unary(LedgerServiceName, "Plan", impl.Plan),
 		rpc.Unary(LedgerServiceName, "AddResource", impl.AddResource),
@@ -58,6 +62,14 @@ type ledgerServiceClient struct {
 // NewLedgerServiceClient calls the service at base through hc.
 func NewLedgerServiceClient(hc *http.Client, base string) LedgerService {
 	return &ledgerServiceClient{http: hc, base: strings.TrimRight(base, "/")}
+}
+
+func (c *ledgerServiceClient) NewWorktree(ctx context.Context, req *NewWorktreeRequest) (*NewWorktreeResponse, error) {
+	res := new(NewWorktreeResponse)
+	if err := callLedgerService(ctx, c.http, c.base+"/rpc/herdsman.daemon.v1.LedgerService/NewWorktree", req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 func (c *ledgerServiceClient) Resources(ctx context.Context, req *ResourcesRequest) (*ResourcesResponse, error) {

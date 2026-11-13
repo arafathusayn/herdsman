@@ -17,6 +17,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/herdrapp"
 	"github.com/arafathusayn/herdsman/internal/herdrapp/apptest"
 	"github.com/arafathusayn/herdsman/internal/launch"
+	"github.com/arafathusayn/herdsman/internal/profile"
 	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
 	"github.com/arafathusayn/herdsman/internal/runtime/core/coretest"
@@ -53,7 +54,7 @@ func TestMain(m *testing.M) {
 		if b, err := os.ReadFile(keychain); err == nil {
 			_ = json.Unmarshal(b, &kc)
 		}
-		os.Exit((&launch.Wrapper{Socket: socket, Intent: intent, Keychain: kc}).Main(context.Background()))
+		os.Exit((&launch.Wrapper{VerifySandbox: profile.CheckCoreLaunch, Socket: socket, Intent: intent, Keychain: kc}).Main(context.Background()))
 	}
 	os.Exit(m.Run())
 }

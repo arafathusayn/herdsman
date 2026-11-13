@@ -22,10 +22,8 @@ type Adapter struct {
 	// RequiredArgs must be in the person's own launch command; Herdsman
 	// refuses the launch and names the argument rather than adding it.
 	RequiredArgs []string
-	// Attended: a person is needed during a run. Codex on core holds no wait
-	// across the end of a turn, and its queued wake is the owner's open
-	// decision, so each notice for it raises needs_attention and a person
-	// types the fixed line in its pane.
+	// Attended: a person is needed during a run. Codex receives queued
+	// notices but needs a person after an interrupt or a paused goal.
 	Attended bool
 	// HoldsWait: the harness keeps `herdsman notice wait` as a background
 	// command and starts a turn when it returns (Claude Code, N20, N21).
@@ -48,7 +46,7 @@ type Adapter struct {
 	StartLine        string
 	StartLineVersion int
 	// RestrictedOnCore: the restricted profile may launch this harness on
-	// core. No harness qualifies yet.
+	// core. Codex is qualified with its pinned permissions profile.
 	RestrictedOnCore bool
 	// Sessions names where the harness keeps its own session files, the
 	// source of its native conversation evidence (SessionsClaudeProject,
@@ -160,8 +158,7 @@ const ClaudeStartLine = "You are managed by herdsman. Start `herdsman notice wai
 	"An interrupt is a pause by the operator, not a request to stop: after one, do not ask what to do; follow your wait's output."
 
 // CodexStartLine is Codex's start line, version 1: each later message names a
-// command to run. Codex is attended on core, so a person types each later
-// line when a notice waits.
+// command to run. Later wake lines arrive through its verified queue.
 const CodexStartLine = "You are managed by herdsman. Each later message names a command to run; run it and do what it prints. " +
 	"Now run `herdsman notice read` and do what it prints."
 
@@ -183,13 +180,11 @@ var adapters = map[string]Adapter{
 		}},
 	"codex": {Kind: "codex", Programs: []string{"codex"}, RequiredArgs: []string{"--no-daemon"}, Attended: true, RestState: "done", StartPath: StartPathPerson,
 		InterruptAtRest: "opens the rewind view: never sent", InterruptInTurn: "stops the model, not its command; its queue is held until a person types a line",
-		StartLine: CodexStartLine, StartLineVersion: 1, Sessions: SessionsCodexRollout,
+		StartLine: CodexStartLine, StartLineVersion: 1, Sessions: SessionsCodexRollout, RestrictedOnCore: true,
 		Facts: Facts{
-			Version:   "0.164.0",
-			IdleMeans: []string{"before the first turn", "after an interrupt", "after a person's slash command"},
-			// The queued wake is the owner's open decision: until it is
-			// settled a person types the fixed line.
-			Wake:                  WakePerson,
+			Version:               "0.164.0",
+			IdleMeans:             []string{"before the first turn", "after an interrupt", "after a person's slash command"},
+			Wake:                  WakeQueue,
 			WaitingStatus:         "done",
 			WorkingOutsideTurn:    "for as long as a command left in the background runs",
 			ResumesAfterInterrupt: false,
@@ -256,9 +251,8 @@ func LaunchSetting(args []string, name string) (int64, bool) {
 }
 
 // PersonSteps are the steps of a run of this harness on core that need a
-// person, under the open decisions: no start-line argument is added, so every
-// start line is a person's; Codex is attended, so each of its notices waits
-// for a person's line, and so do its interrupt and a paused goal.
+// person: the initial start line, interrupted Codex turns, paused goals,
+// and compaction when the harness cannot perform it automatically.
 // autoCompactOff says the user turned the harness's own compaction off.
 func (a Adapter) PersonSteps(autoCompactOff bool) []PersonStep {
 	out := []PersonStep{{Reason: AttentionStartLine, When: "once, before the first brief", What: "submit the start line in the agent's pane"}}
@@ -303,6 +297,8 @@ func (a Adapter) PersonSummary() string {
 	wake := "a person types `" + notice.AttendedLine + "` in its pane for each notice"
 	if a.Facts.Wake == WakeBackgroundWait {
 		wake = "it holds a background `herdsman notice wait` and wakes when it returns"
+	} else if a.Facts.Wake == WakeQueue {
+		wake = "it receives a fixed wake line through its verified native conversation queue; version 0.164.0 is qualified"
 	}
 	level := a.Facts.Level
 	if level == LevelAttended {
@@ -313,8 +309,7 @@ func (a Adapter) PersonSummary() string {
 
 // Unattended reports an adapter qualified for unattended use on core 0.1.20:
 // it is woken with no terminal input and resumes an interrupted turn with no
-// person. Codex is attended while its queued wake stays the owner's open
-// decision: each notice for it waits for a person's line.
+// person. Codex remains attended after interruptions and paused goals.
 func (a Adapter) Unattended() bool { return !a.Attended && a.HoldsWait }
 
 // Kinds lists the harness kinds the core provider can launch, sorted.

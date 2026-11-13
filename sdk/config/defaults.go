@@ -11,10 +11,9 @@ const SchemaVersion = "1.0.0"
 // NewFileBackend is the execution backend a new config file names. It is
 // written by InitFile only and is never a default of Load: a file without a
 // [runtime] backend falls back to the installation default, so an existing
-// file keeps the backend it has. While herdr-core ships as an experiment
-// (selected only with experimental = true in [runtime.core]), a new file names
-// the Herdr TUI; the release where core graduates changes this one constant.
-const NewFileBackend = "herdr-tui"
+// file keeps the backend it has. New files select core explicitly; the TUI
+// remains available through an explicit backend setting.
+const NewFileBackend = "herdr-core"
 
 // Defaults returns the settings used when nothing overrides them. It is the
 // one place a default is written.

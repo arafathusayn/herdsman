@@ -347,8 +347,6 @@ func TestCorePlanRefusals(t *testing.T) {
 	r := newCoreRig(t)
 	restricted := r.request()
 	restricted.Policy = policy.Policy{Profile: policy.ProfileRestricted}
-	manual := r.request()
-	manual.PairManual = true
 	codex := r.request()
 	codex.OrchestratorCommand = "codex"
 	noCore := r.request()
@@ -358,7 +356,6 @@ func TestCorePlanRefusals(t *testing.T) {
 		want string
 	}{
 		"restricted": {restricted, "restricted"},
-		"manual":     {manual, "--pair manual"},
 		"codex":      {codex, "--no-daemon"},
 		"no core":    {noCore, "launch socket"},
 	} {
@@ -437,6 +434,13 @@ func TestCoreControlPausesStopsAndResumes(t *testing.T) {
 	resumed := verb(route.VerbResume, 3, route.ControlStopped)
 	if resumed.State != ops.OpStopped || !strings.Contains(lastError(resumed), core.CodeNeedsAttention) {
 		t.Fatalf("resume: %s %q", resumed.State, lastError(resumed))
+	}
+	if err := route.ResolveHalted(e, resumed); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err = e.Drive(context.Background(), resumed.ID)
+	if err != nil || resumed.State != ops.OpDone {
+		t.Fatalf("resume never completed: %v %s", err, lastError(resumed))
 	}
 	execs, _ = r.w.Records.List(context.Background(), r.repo, "harbor")
 	if len(execs) != 2 || execs[0].LaunchIntent == execs[1].LaunchIntent {
@@ -582,5 +586,51 @@ func TestCoreStartSurvivesACrashAtEveryBoundary(t *testing.T) {
 				t.Errorf("step %d %s: %s %q", ordinal, point, op.State, lastError(op))
 			}
 		}
+	}
+}
+
+func TestCoreManualPairNeedsExactConfirmation(t *testing.T) {
+	r := newCoreRig(t)
+	r.w.OpenApp()
+	e, done := r.engine()
+	defer done()
+	q := r.request()
+	q.PairManual = true
+	p := r.plan(q)
+	r.attestShell(p.Key)
+	op := drive(t, e, p.Spec)
+	cont := func() {
+		t.Helper()
+		if err := route.Continue(e, r.callers, p, op, nil); err != nil {
+			t.Fatal(err)
+		}
+		var err error
+		op, err = e.Drive(context.Background(), op.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	cont()
+	cont() // acknowledge each harness's start line
+	sum, approved, err := route.CorePairState(p.Folder)
+	if err != nil || approved || sum == "" || op.State != ops.OpStopped {
+		t.Fatalf("pending %s %v %v %s: %s", sum, approved, err, op.State, lastError(op))
+	}
+	caller, _ := r.callers.Get(p.Key)
+	caller.Confirmed = "wrong"
+	r.callers.Set(p.Key, caller)
+	cont()
+	if op.State != ops.OpStopped || r.channel.Approved(q.Route) {
+		t.Fatal("wrong confirmation enrolled pair")
+	}
+	caller.Confirmed = sum
+	r.callers.Set(p.Key, caller)
+	cont()
+	if op.State != ops.OpDone {
+		t.Fatalf("confirmation: %s", lastError(op))
+	}
+	_, approved, err = route.CorePairState(p.Folder)
+	if err != nil || !approved {
+		t.Fatalf("approval not persisted: %v", err)
 	}
 }

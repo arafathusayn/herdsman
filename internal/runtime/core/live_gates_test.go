@@ -62,7 +62,7 @@ func TestLiveCorePath(t *testing.T) {
 	if _, err := w.p.Enrollable(ctx, []string{l.Intent}); err != nil {
 		t.Fatalf("enrollable: %v", err)
 	}
-	if rec.Backend != runtime.BackendCore || rec.EndpointID != w.coreID || rec.Experiment != runtime.ExperimentLabel {
+	if rec.Backend != runtime.BackendCore || rec.EndpointID != w.coreID || rec.Experiment != "" {
 		t.Fatalf("persisted backend %q endpoint %q experiment %q", rec.Backend, rec.EndpointID, rec.Experiment)
 	}
 	for _, m := range []string{hc.MethodSend, "terminal.keys"} {

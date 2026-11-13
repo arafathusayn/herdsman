@@ -140,12 +140,16 @@ func TestInvalidValuesFail(t *testing.T) {
 	}
 }
 
-// The TUI view is not built in this release: enabling it is refused by name;
+// The optional TUI view requires an explicit endpoint;
 // a socket alone is accepted and changes nothing.
-func TestTUIViewIsRefusedWhenEnabled(t *testing.T) {
-	_, err := resolve(t, &configv1.Runtime{TuiView: &configv1.RuntimeTuiView{Enabled: proto.Bool(true), Socket: proto.String("/srv/herdr.sock")}})
-	if !errors.Is(err, coreconfig.ErrTUIView) || !strings.Contains(err.Error(), "not available in this release") {
+func TestTUIViewRequiresAnExplicitSocket(t *testing.T) {
+	_, err := resolve(t, &configv1.Runtime{TuiView: &configv1.RuntimeTuiView{Enabled: proto.Bool(true)}})
+	if !errors.Is(err, coreconfig.ErrTUIView) || !strings.Contains(err.Error(), "absolute socket") {
 		t.Fatalf("enabled: %v", err)
+	}
+	enabled, err := resolve(t, &configv1.Runtime{TuiView: &configv1.RuntimeTuiView{Enabled: proto.Bool(true), Socket: proto.String("/srv/herdr.sock")}})
+	if err != nil || enabled.TUIView.Value != "on" {
+		t.Fatalf("enabled view: %+v %v", enabled, err)
 	}
 	s, err := resolve(t, &configv1.Runtime{TuiView: &configv1.RuntimeTuiView{Socket: proto.String("/srv/herdr.sock")}})
 	if err != nil || s.TUIView.Value != "off" || s.TUIViewSocket.Value != "/srv/herdr.sock" {

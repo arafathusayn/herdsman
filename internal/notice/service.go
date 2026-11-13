@@ -89,9 +89,12 @@ type Config struct {
 	// notice it claimed.
 	RecordPath func(Notice) string
 	// Attended reports a harness kind that holds no wait: each notice for it
-	// raises needs_attention for a person (Codex on core, while its queued
-	// wake is the owner's open decision).
+	// raises needs_attention for a person unless the Queued adapter can wake it.
 	Attended func(harness string) bool
+	// Queued identifies adapters woken by their own message queue. Queue
+	// must prove the current execution and native conversation before writing.
+	Queued func(harness string) bool
+	Queue  func(context.Context, runtime.Execution, string) error
 	// Trace receives each step of a notice once, after it is recorded: the
 	// issue (the call's own time), the claim (from issue to claim) and the
 	// handling (from claim to acknowledgement). A repeated call is no step.
@@ -168,6 +171,7 @@ type Service struct {
 	execs Executions
 	cfg   Config
 
+	queueMu sync.Mutex // one external queued-wake command at a time
 	mu      sync.Mutex // serializes the transactions and guards the maps
 	changed chan struct{}
 	stopped chan struct{}
@@ -735,7 +739,7 @@ func (s *Service) Reissue(ctx context.Context, from string, to string, issuer st
 		}
 		content := n.Content
 		if n.Token != "" {
-			content = "This carries on notice " + n.ID + ", which your predecessor claimed and did not acknowledge; read " + prevRecord(n) + " before you act, and do not repeat work it records.\n\n" + n.Content
+			prev = "This carries on notice " + n.ID + ", which your predecessor claimed and did not acknowledge; read " + prevRecord(n) + " before you act, and do not repeat work it records."
 		}
 		got, err := s.Issue(ctx, IssueRequest{Key: "reissue:" + n.ID + ":" + to, Kind: n.Kind, Execution: to, Content: content, Issuer: issuer, Previous: prev})
 		if err != nil {
@@ -744,6 +748,15 @@ func (s *Service) Reissue(ctx context.Context, from string, to string, issuer st
 		out = append(out, got)
 	}
 	return out, nil
+}
+
+// readContent includes the predecessor's processing record without reducing
+// the documented content limit or recursively copying earlier payloads.
+func readContent(n Notice) string {
+	if n.Previous != "" {
+		return n.Previous + "\n\n" + n.Content
+	}
+	return n.Content
 }
 
 func prevRecord(n Notice) string {
@@ -1073,10 +1086,6 @@ func (s *Service) Read(ctx context.Context, caller runtime.Execution, id string)
 		if err != nil {
 			return err
 		}
-		rs, _, err := tx.Route(e.Repo, e.Route)
-		if err != nil {
-			return err
-		}
 		var target *Notice
 		if id != "" {
 			for i := range list {
@@ -1088,16 +1097,16 @@ func (s *Service) Read(ctx context.Context, caller runtime.Execution, id string)
 				return ErrUnknown
 			}
 		} else {
-			// The open claim first, then a final report, then the next.
+			// A stop report preempts ordinary work, including an open claim.
 			for i := range list {
-				if list[i].Open() && list[i].Ordinary() {
+				if list[i].Kind == KindFinalReport && (list[i].State == StateIssued || list[i].Open()) {
 					target = &list[i]
 					break
 				}
 			}
 			if target == nil {
 				for i := range list {
-					if list[i].Kind == KindFinalReport && list[i].State == StateIssued {
+					if list[i].Open() && list[i].Ordinary() {
 						target = &list[i]
 						break
 					}
@@ -1112,17 +1121,17 @@ func (s *Service) Read(ctx context.Context, caller runtime.Execution, id string)
 				}
 			}
 			if target == nil {
-				out = ReadAnswer{Next: nextWait, Detail: "no notice waits for this execution"}
+				out = ReadAnswer{Next: s.nextInstruction(e), Detail: "no notice waits for this execution"}
 				return nil
 			}
 		}
 		n := *target
 		switch n.State {
 		case StateHandled:
-			out = ReadAnswer{Notice: n, Next: nextWait, Detail: "handled with outcome " + n.Outcome + "; there is nothing to do"}
+			out = ReadAnswer{Notice: n, Next: s.nextInstruction(e), Detail: "handled with outcome " + n.Outcome + "; there is nothing to do"}
 			return nil
 		case StateReturned:
-			out = ReadAnswer{Notice: n, Refused: GateReturned, Next: nextWait, Detail: "returned: " + n.ReturnReason}
+			out = ReadAnswer{Notice: n, Refused: GateReturned, Next: s.nextInstruction(e), Detail: "returned: " + n.ReturnReason}
 			return nil
 		case StateClaimed:
 			// A repeat read: the same token and content, marked as
@@ -1131,18 +1140,22 @@ func (s *Service) Read(ctx context.Context, caller runtime.Execution, id string)
 			if err := tx.PutNotice(n); err != nil {
 				return err
 			}
-			may := n.Kind == KindFinalReport || (!rs.Held && !rs.Stopping)
-			out = ReadAnswer{Notice: n, Content: n.Content, Token: n.Token, ClaimedBefore: true, MayContinue: may}
+			refused := s.gate(tx, e, n, true)
+			may := refused == nil
+			out = ReadAnswer{Notice: n, Content: readContent(n), Token: n.Token, ClaimedBefore: true, MayContinue: may}
 			if may {
 				out.Next = "read your processing record " + n.RecordPath + ", go on from where it stops or close the claim with: herdsman notice ack " + n.ID + " --token " + n.Token + " --outcome interrupted --record <how far it went>"
 			} else {
-				out.Next = nextWaitAfter(n.ID)
-				out.Detail = "the route is held or stopping: the work must wait"
+				out.Next = s.nextInstruction(e)
+				if s.cfg.Queued == nil || !s.cfg.Queued(e.HarnessKind) {
+					out.Next = nextWaitAfter(n.ID)
+				}
+				out.Refused, out.Detail = refused.Gate, refused.Detail
 			}
 			return nil
 		}
 		if r := s.gate(tx, e, n, true); r != nil {
-			out = ReadAnswer{Notice: n, Refused: r.Gate, Detail: r.Detail, Next: nextWait}
+			out = ReadAnswer{Notice: n, Refused: r.Gate, Detail: r.Detail, Next: s.nextInstruction(e)}
 			return nil
 		}
 		n.State, n.Token, n.ClaimedAt = StateClaimed, randomHex(16), s.now()
@@ -1152,9 +1165,12 @@ func (s *Service) Read(ctx context.Context, caller runtime.Execution, id string)
 			return err
 		}
 		claimed = true
-		out = ReadAnswer{Notice: n, Content: n.Content, Token: n.Token, MayContinue: true,
+		out = ReadAnswer{Notice: n, Content: readContent(n), Token: n.Token, MayContinue: true,
 			Next: "start `" + nextWaitAfter(n.ID) + "` in the background before the work, keep notes in " + n.RecordPath +
 				", then run: herdsman notice ack " + n.ID + " --token " + n.Token + " --outcome completed --record <what you did>"}
+		if s.cfg.Queued != nil && s.cfg.Queued(e.HarnessKind) {
+			out.Next = "keep notes in " + n.RecordPath + ", then run: herdsman notice ack " + n.ID + " --token " + n.Token + " --outcome completed --record <what you did>"
+		}
 		return nil
 	})
 	if claimed && err == nil {
@@ -1181,7 +1197,8 @@ func (s *Service) Ack(ctx context.Context, caller runtime.Execution, id, token, 
 		return AckAnswer{}, ErrRecord
 	}
 	var out AckAnswer
-	var follow *Notice
+	var continuation Notice
+
 	err := s.tx(func(tx Tx) error {
 		n, ok, err := tx.NoticeByID(id)
 		if err != nil {
@@ -1198,7 +1215,7 @@ func (s *Service) Ack(ctx context.Context, caller runtime.Execution, id, token, 
 			if n.Outcome != outcome {
 				return ErrOutcome
 			}
-			out = AckAnswer{Notice: n, Repeated: true, Next: nextWait}
+			out = AckAnswer{Notice: n, Repeated: true, Next: s.nextInstruction(caller)}
 			return nil
 		case StateClaimed:
 		default:
@@ -1212,11 +1229,25 @@ func (s *Service) Ack(ctx context.Context, caller runtime.Execution, id, token, 
 		if err := tx.PutNotice(n); err != nil {
 			return err
 		}
-		out = AckAnswer{Notice: n, Next: nextWait}
+		out = AckAnswer{Notice: n, Next: s.nextInstruction(caller)}
 		if outcome != OutcomeCompleted {
 			if r, _ := RuleOf(n.Kind); r.FollowUp == FollowReissue {
-				f := n
-				follow = &f
+				// The continuation is part of the acknowledgement transaction.
+				// It can remain issued while held; Read applies all claim gates.
+				// Keeping the prior record separate preserves both size limits.
+				f := s.draft(caller, "after:"+n.ID, n.Kind, n.Content, n.Issuer)
+				f.Folder = n.Folder
+				f.Previous = "This carries on notice " + n.ID + ", acknowledged " + outcome +
+					". Continue from this processing record; do not repeat completed work:\n" + n.Record
+				seq, err := tx.NextSeq()
+				if err != nil {
+					return err
+				}
+				f.Seq = seq
+				continuation = f
+				if err := tx.PutNotice(f); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
@@ -1224,17 +1255,15 @@ func (s *Service) Ack(ctx context.Context, caller runtime.Execution, id, token, 
 	if err != nil {
 		return out, err
 	}
+	if continuation.ID != "" {
+		s.cfg.Trace(TraceIssue, continuation, continuation.IssuedAt, s.now())
+	}
 	n := out.Notice
 	if !out.Repeated {
 		s.cfg.Trace(TraceHandle, n, n.ClaimedAt, n.HandledAt)
 	}
 	if !out.Repeated && outcome != OutcomeCompleted {
 		s.cfg.Emit(Event{Kind: EventOutcome, Repo: n.Repo, Route: n.Route, Execution: n.Execution, Notice: n.ID, Outcome: outcome, Reason: n.Kind})
-	}
-	if follow != nil {
-		_, err = s.Issue(ctx, IssueRequest{Key: "after:" + follow.ID, Kind: follow.Kind, Execution: follow.Execution, Issuer: follow.Issuer,
-			Content:  "This carries on notice " + follow.ID + ", acknowledged " + outcome + " with this record:\n" + follow.Record + "\n\n" + follow.Content,
-			Previous: "notice " + follow.ID})
 	}
 	return out, err
 }
@@ -1282,7 +1311,7 @@ func (s *Service) Tick(ctx context.Context) error {
 					delete(s.restSince, e.ID)
 				} else if since, ok := s.restSince[e.ID]; !ok {
 					s.restSince[e.ID] = now
-				} else if now.Sub(since) >= s.cfg.RecoveryGrace && !open.RecoveryDue && !attended {
+				} else if now.Sub(since) >= s.cfg.RecoveryGrace && !open.RecoveryDue && (!attended || s.cfg.Queued != nil && s.cfg.Queued(e.HarnessKind)) {
 					open.RecoveryDue, wake = true, true
 					if err := tx.PutNotice(*open); err != nil {
 						return err
@@ -1309,7 +1338,7 @@ func (s *Service) Tick(ctx context.Context) error {
 				r := s.gate(tx, e, n, true)
 				changed := false
 				switch {
-				case r == nil && attended && !n.Attention:
+				case r == nil && attended && (s.cfg.Queued == nil || !s.cfg.Queued(e.HarnessKind)) && !n.Attention:
 					n.Attention, changed = true, true
 					events = append(events, Event{Kind: EventNeedsAttention, Repo: e.Repo, Route: e.Route, Execution: e.ID, Notice: n.ID, Reason: AttentionNoticeWaiting,
 						Detail: "a notice waits for this attended execution; a person types the line in its pane", Line: AttendedLine})
@@ -1357,6 +1386,15 @@ func (s *Service) Tick(ctx context.Context) error {
 	for _, ev := range events {
 		s.cfg.Emit(ev)
 	}
+	if err == nil && s.cfg.Queue != nil {
+		for _, e := range execs {
+			if s.cfg.Queued != nil && s.cfg.Queued(e.HarnessKind) {
+				if queueErr := s.QueueWake(ctx, e.ID); queueErr != nil {
+					err = errors.Join(err, queueErr)
+				}
+			}
+		}
+	}
 	return err
 }
 
@@ -1402,3 +1440,11 @@ func (s *Service) ByKey(key string) (Notice, bool, error) {
 // Emit raises an event of the runtime topic for a caller that has no
 // emitter of its own, such as a route's pause or resume step.
 func (s *Service) Emit(ev Event) { s.cfg.Emit(ev) }
+
+// A queued adapter ends its turn; holding a poll cannot wake that harness.
+func (s *Service) nextInstruction(e runtime.Execution) string {
+	if s.cfg.Queued != nil && s.cfg.Queued(e.HarnessKind) {
+		return "end your turn; the harness queue will wake you when another notice is claimable"
+	}
+	return nextWait
+}

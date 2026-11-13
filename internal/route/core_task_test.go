@@ -109,3 +109,33 @@ func TestCoreTaskLaunchReadsTheOldDoubledNoticeKey(t *testing.T) {
 		t.Errorf("a second prompt was issued under the new key: %v %v", ok, err)
 	}
 }
+
+func TestCoreTaskAfterStopUsesNewExecutionAndNotice(t *testing.T) {
+	r := newCoreRig(t)
+	r.w.OpenApp()
+	ctx := context.Background()
+	q := route.TaskLaunch{Repo: r.repo, Path: r.repo, Task: "again", Command: []string{"claude"}, Prompt: "task", StateDir: t.TempDir(), Core: r.request().Core}
+	cp := r.w.NewProvider(r.w.Core.Socket)
+	first, err := route.LaunchTask(ctx, cp, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := first.Execution
+	old.Desired = runtime.DesiredStopped
+	old.Observation.Process = runtime.ProcessFinished
+	if _, err := r.w.Records.Put(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	r.w.Procs.Kill(old.Evidence.PID)
+	second, err := route.LaunchTask(ctx, cp, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Execution.ID == old.ID || second.Execution.Generation <= old.Generation || second.Notice == first.Notice {
+		t.Fatalf("stopped task identity was reused: %+v", second)
+	}
+	repeat, err := route.LaunchTask(ctx, cp, q)
+	if err != nil || repeat.Execution.ID != second.Execution.ID || repeat.Notice != second.Notice {
+		t.Fatalf("retry changed new attempt: %+v %v", repeat, err)
+	}
+}

@@ -29,8 +29,8 @@ func TestAdapterFactsMatchTheProbes(t *testing.T) {
 		{"claude waits as", claude.Facts.WaitingStatus, "done"},
 		{"codex waits as", codex.Facts.WaitingStatus, "done"},
 		{"claude wake", claude.Facts.Wake, core.WakeBackgroundWait},
-		// No codex queue while the owner's decision is open: a person.
-		{"codex wake", codex.Facts.Wake, core.WakePerson},
+		// The native queue wakes a proven session without terminal input.
+		{"codex wake", codex.Facts.Wake, core.WakeQueue},
 		{"claude after an interrupt", claude.Facts.ResumesAfterInterrupt, true},
 		{"codex after an interrupt", codex.Facts.ResumesAfterInterrupt, false},
 		{"claude interrupt resumable", claude.InterruptResumable, true},
@@ -49,7 +49,8 @@ func TestAdapterFactsMatchTheProbes(t *testing.T) {
 		{"codex requires --no-daemon", slices.Contains(codex.RequiredArgs, "--no-daemon"), true},
 		{"claude probed version", claude.Facts.Version, "2.1.322"},
 		{"codex probed version", codex.Facts.Version, "0.164.0"},
-		{"restricted on core", claude.RestrictedOnCore || codex.RestrictedOnCore, false},
+		{"restricted codex on core", codex.RestrictedOnCore, true},
+		{"restricted claude on core", claude.RestrictedOnCore, false},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s: %v, want %v", c.name, c.got, c.want)
@@ -122,7 +123,7 @@ func TestPersonSteps(t *testing.T) {
 	if got := reasons(claude.PersonSteps(true)); !slices.Equal(got, []string{core.AttentionStartLine, core.AttentionCompactionDue}) {
 		t.Errorf("claude with compaction off: %v", got)
 	}
-	want := []string{core.AttentionStartLine, core.AttentionNoticeWaiting, core.AttentionInterrupted, core.AttentionGoalPaused}
+	want := []string{core.AttentionStartLine, core.AttentionInterrupted, core.AttentionGoalPaused}
 	if got := reasons(codex.PersonSteps(false)); !slices.Equal(got, want) {
 		t.Errorf("codex: %v, want %v", got, want)
 	}

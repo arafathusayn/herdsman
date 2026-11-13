@@ -110,7 +110,7 @@ Purple is planning with you, blue is agents at work, grey is the orchestrator as
 
 - **Worktree commands** *(next release)*. `new`, `go`, `ls`, `diff`, `commit`, `each` and `teardown` work on a task's worktree by name. `teardown` stops only what the task owns.
 - **One-command start** *(next release)*. `herdsman up` starts a route and picks up where it stopped when you run it again.
-- **herdr-core, as an experiment** *(next release)*. With `backend = "herdr-core"` in `[runtime]` and `experimental = true` in `[runtime.core]`, each agent runs as a herdr-core terminal shown in the herdr app. Agents pull their instructions as notices and nothing is typed into their terminals; `up` names the steps that need a person first. New and existing installations stay on the Herdr TUI ([experimental surfaces](docs/experimental.md)).
+- **herdr-core by default** *(next release)*. New installations use `backend = "herdr-core"` in `[runtime]`: each agent runs as a herdr-core terminal shown in the herdr app. Agents pull their instructions as notices and nothing is typed into their terminals; `up` names the steps that need a person first. Existing installations retain their stored backend. The Herdr TUI remains an explicit alternative backend and an optional view of core executions ([release notes](docs/releases/v0.11.0.md)).
 - **Cost and traces** *(next release)*. `cost` reports the tokens that harnesses measured, and `trace` exports a route's spans as OpenTelemetry.
 
 **Build on it**
@@ -249,7 +249,7 @@ The `herdsman` command holds the web app, the tools the skill runs and the workt
 
 | Command | What it does |
 | --- | --- |
-| `up` *(next release)* | Starts a route in one command: workspace, private inbox, both coordinators, the pair and the first brief. `--backend herdr-core` runs the agents on herdr-core, an [experiment](docs/experimental.md). |
+| `up` *(next release)* | Starts a route in one command: workspace, private inbox, both coordinators, the pair and the first brief. `--backend herdr-core` runs the agents on herdr-core, the default for new installations. |
 | `runtime` *(next release)* | `runtime doctor` says which backend a route uses and why, and which steps need a person; `runtime ls` lists agent executions; `runtime default` reads or sets the installation default; `runtime show` brings an agent's terminal forward in the app; `runtime submit` types one line as a person. |
 | `launch` *(next release)* | Run by herdr-core, not by a person: proves a reserved terminal is the agent's, runs its prelude and starts its harness. |
 | `notice` *(next release)* | Run by a managed agent on herdr-core: `notice wait`, `notice read` and `notice ack` pull its instructions through the daemon's worker socket; no automation types into its terminal. |

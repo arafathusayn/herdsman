@@ -160,8 +160,12 @@ type Notice struct {
 	HeldGate     string    `json:"held_gate,omitempty"`
 	HeldReported bool      `json:"held_reported,omitempty"`
 	// Attention: needs_attention was raised for an attended execution.
-	Attention   bool `json:"attention,omitempty"`
-	Interrupted bool `json:"interrupted,omitempty"`
+	// A queue reservation survives daemon restart and uncertain queue replies.
+	WakePending  bool      `json:"wake_pending,omitempty"`
+	WakeAt       time.Time `json:"wake_at,omitzero"`
+	WakeReported bool      `json:"wake_reported,omitempty"`
+	Attention    bool      `json:"attention,omitempty"`
+	Interrupted  bool      `json:"interrupted,omitempty"`
 }
 
 // Open reports a claim that is not closed.

@@ -2,6 +2,7 @@ package hc_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -10,6 +11,19 @@ import (
 	"github.com/arafathusayn/herdsman/internal/hc"
 	"github.com/arafathusayn/herdsman/internal/hc/hctest"
 )
+
+func TestGlobalEventsDoNotRequireATerminal(t *testing.T) {
+	for _, kind := range []string{hc.EventDoc, "future-global-event"} {
+		var event hc.Event
+		if err := json.Unmarshal([]byte(`{"seq":1,"type":"`+kind+`","data":{}}`), &event); err != nil {
+			t.Fatalf("global %s event broke the subscription: %v", kind, err)
+		}
+	}
+	var event hc.Event
+	if err := json.Unmarshal([]byte(`{"seq":1,"type":"status","data":{}}`), &event); err == nil {
+		t.Fatal("a terminal status without its terminal was accepted")
+	}
+}
 
 func subscribe(t *testing.T, core *hctest.Core, f hc.Filter, opts hc.Options) *hc.Subscription {
 	t.Helper()

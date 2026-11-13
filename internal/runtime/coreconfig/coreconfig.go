@@ -115,14 +115,13 @@ type Input struct {
 	DefaultAppHome string
 }
 
-// ErrTUIView refuses an enabled TUI view: the view is not built in this
-// release.
-var ErrTUIView = errors.New("[runtime.tui_view] enabled = true: the Herdr TUI view of core agents is not available in this release; remove enabled, or set it to false (socket alone is accepted and changes nothing)")
+// ErrTUIView refuses an enabled mirror without an explicit TUI endpoint.
+var ErrTUIView = errors.New("[runtime.tui_view] enabled = true requires an explicit absolute socket path")
 
 // Resolve reads the keys, checks them and fills each default. A duration that
 // does not parse or is not positive, a socket or an app home that is not
 // absolute, a session that is not one path segment, a socket and a session
-// that name different endpoints, and an enabled TUI view each fail with the
+// that name different endpoints, and a mirror without an explicit socket each fail with the
 // key named.
 func Resolve(in Input) (Settings, error) {
 	rt := in.Runtime
@@ -198,10 +197,14 @@ func Resolve(in Input) (Settings, error) {
 	}
 	s.ConnectSet, s.ReadySet, s.VisibilitySet = c.ConnectTimeout != nil, c.ReadyTimeout != nil, a.VisibilityTimeout != nil
 
-	if v.GetEnabled() {
+	if v.GetEnabled() && !filepath.IsAbs(v.GetSocket()) {
 		return s, ErrTUIView
 	}
-	s.TUIView = str("runtime.tui_view.enabled", v.Enabled != nil, "off", "off")
+	view := "off"
+	if v.GetEnabled() {
+		view = "on"
+	}
+	s.TUIView = str("runtime.tui_view.enabled", v.Enabled != nil, view, "off")
 	s.TUIViewSocket = str("runtime.tui_view.socket", v.Socket != nil, v.GetSocket(), "")
 
 	if err := s.endpoint(in, c, from); err != nil {

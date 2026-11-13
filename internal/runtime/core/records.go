@@ -45,10 +45,20 @@ func (m *MemRecords) Put(_ context.Context, e runtime.Execution) (runtime.Execut
 	for i, r := range m.rows {
 		if r.LaunchIntent == e.LaunchIntent {
 			e.ID, e.Generation, e.Created, e.SchemaVersion, e.Experiment = r.ID, r.Generation, r.Created, r.SchemaVersion, r.Experiment
-			if e.Evidence.PID == 0 {
+			if r.Evidence.PID != 0 || e.Evidence.PID == 0 {
 				e.Evidence = r.Evidence
 			}
-			if e.InitialCreatedMS == 0 {
+			if r.LaunchGuard != "" || e.LaunchGuard == "" {
+				e.LaunchGuard, e.ArgvDigest, e.PolicyDigest = r.LaunchGuard, r.ArgvDigest, r.PolicyDigest
+			}
+			if e.App == nil {
+				e.App = r.App
+			} else if r.App != nil && r.App.Socket != "" {
+				app := *e.App
+				app.Socket, app.Binary = r.App.Socket, r.App.Binary
+				e.App = &app
+			}
+			if r.InitialCreatedMS != 0 {
 				e.InitialCreatedMS = r.InitialCreatedMS
 			}
 			if e.Conversation == nil {

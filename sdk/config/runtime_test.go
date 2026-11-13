@@ -60,7 +60,7 @@ func TestNewFileNamesItsBackendAndUpdateAddsNoBackend(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Config.GetRuntime().GetBackend() != NewFileBackend || NewFileBackend != "herdr-tui" {
+			if got.Config.GetRuntime().GetBackend() != NewFileBackend || NewFileBackend != "herdr-core" {
 				t.Fatalf("a new file names %q", got.Config.GetRuntime().GetBackend())
 			}
 		})

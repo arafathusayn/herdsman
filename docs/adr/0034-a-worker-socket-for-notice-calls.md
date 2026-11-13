@@ -12,4 +12,4 @@ The daemon listens on a second socket that serves only the notice calls of the c
 
 ## Consequences
 
-A worker reaches its own notices and nothing else of the daemon. Agent traffic cannot take the slots that route control needs. A harness whose sandbox cannot allow one socket by path is not qualified for the restricted profile on core. In this release no harness is: the restricted profile is refused on core, and every managed agent there is unrestricted and still uses this socket.
+A worker reaches its own notices and nothing else of the daemon. Agent traffic cannot take the slots that route control needs. Codex 0.164.0 is qualified with `network_proxy`, a fresh per-launch permissions profile and an exact Unix-socket allowance. Each profile grants only resolved writable roots and the worker socket. A fresh name is necessary because Codex merges permission tables: reusing a fixed name can retain older write grants. The wrapper verifies the resolved profile and proxy before registration. User arguments cannot change the sandbox, selected profile or proxy. Claude Code remains unqualified for the restricted profile.

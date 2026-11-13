@@ -17,8 +17,10 @@ import (
 // step that uses it. A retry of the same journaled step reads the same
 // values; a new attempt reserves new ones.
 type Launch struct {
-	Intent    string `json:"intent"`
-	Execution string `json:"execution"`
+	Intent     string `json:"intent"`
+	Execution  string `json:"execution"`
+	CoreSocket string `json:"core_socket,omitempty"`
+	CoreBinary string `json:"core_binary,omitempty"`
 	// Owner is the installation id; RouteID and AgentID are opaque ids of
 	// the route and the logical agent, stable across executions.
 	Owner     string `json:"owner"`

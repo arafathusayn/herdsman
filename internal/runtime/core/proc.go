@@ -65,17 +65,32 @@ func (SystemProcs) Parent(pid int) (int, error) {
 
 // List implements ProcessTable.
 func (SystemProcs) List(ctx context.Context) ([]Proc, error) {
-	raw, err := ledger.ExecRunner(ctx, "ps", "-ax", "-ww", "-o", "pid=,ppid=,pgid=,lstart=,command=")
+	raw, err := ledger.ExecRunner(ctx, "ps", "-ax", "-ww", "-o", "pid=,ppid=,command=")
 	if err != nil {
 		return nil, err
 	}
-	rows, err := ledger.ParsePS(raw, time.Local)
+	return parseProcesses(raw)
+}
+
+func parseProcesses(raw []byte) ([]Proc, error) {
+	// This command column contains no environment. The ledger's ParsePS
+	// accepts ps -E output and conservatively cuts at KEY=value; using it
+	// here would erase Codex flags after a -c key=value sandbox argument.
+	rows, err := ledger.ParseCommands(raw)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]Proc, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, Proc{PID: r.Pid, PPID: r.Parent, Argv: strings.Fields(r.Command)})
+	for pid, command := range rows {
+		words := strings.Fields(command)
+		if len(words) == 0 {
+			return nil, fmt.Errorf("core: process %d has no parent", pid)
+		}
+		parent, err := strconv.Atoi(words[0])
+		if err != nil {
+			return nil, fmt.Errorf("core: process %d has an invalid parent", pid)
+		}
+		out = append(out, Proc{PID: pid, PPID: parent, Argv: words[1:]})
 	}
 	return out, nil
 }

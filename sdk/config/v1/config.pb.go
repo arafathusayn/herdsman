@@ -475,9 +475,8 @@ func (x *Config) GetRuntime() *Runtime {
 type Runtime struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// "herdr-core" or "herdr-tui". Unset means the installation default, which
-	// `herdsman runtime default` prints: herdr-tui on every installation while
-	// herdr-core ships as an experiment. A route that exists keeps the backend
-	// it started on.
+	// `herdsman runtime default` prints: herdr-core for a new installation.
+	// Existing installations and routes retain their recorded backend.
 	Backend       *string         `protobuf:"bytes,1,opt,name=backend,proto3,oneof" json:"backend,omitempty"`
 	Core          *RuntimeCore    `protobuf:"bytes,2,opt,name=core,proto3" json:"core,omitempty"`
 	App           *RuntimeApp     `protobuf:"bytes,3,opt,name=app,proto3" json:"app,omitempty"`
@@ -568,9 +567,8 @@ type RuntimeCore struct {
 	// How long an agent may take to become ready after it registers, such as
 	// "90s". The default is 90 seconds.
 	ReadyTimeout *string `protobuf:"bytes,5,opt,name=ready_timeout,json=readyTimeout,proto3,oneof" json:"ready_timeout,omitempty"`
-	// Must be true while the backend ships as an experiment (this release:
-	// runtime.core/0.1.0). Without it a new route on herdr-core is refused with
-	// backend_experimental; a route already on core keeps running there.
+	// Compatibility key accepted from earlier experimental configurations.
+	// It has no effect: herdr-core is the default for new installations.
 	Experimental  *bool `protobuf:"varint,6,opt,name=experimental,proto3,oneof" json:"experimental,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -717,15 +715,14 @@ func (x *RuntimeApp) GetVisibilityTimeout() string {
 }
 
 // RuntimeTuiView mirrors core agents in the Herdr TUI. It never changes the
-// execution backend. The mirror is not available in this release: enabled =
-// true stops every run with invalid_runtime_config, and socket alone is
-// accepted and changes nothing.
+// execution backend or the required native-app visibility. Reports are
+// expiring display metadata; the TUI owns no harness identity or readiness.
 type RuntimeTuiView struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Mirror core agents in the TUI. Off unless set; true is refused in this
-	// release.
+	// Mirror core agents in dedicated TUI workspaces. Off unless set.
+	// Enabling requires an explicit absolute socket path.
 	Enabled *bool `protobuf:"varint,1,opt,name=enabled,proto3,oneof" json:"enabled,omitempty"`
-	// The TUI's absolute socket path, for the mirror of a later release.
+	// The TUI's absolute socket path. No ambient pane or session is used.
 	Socket        *string `protobuf:"bytes,2,opt,name=socket,proto3,oneof" json:"socket,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

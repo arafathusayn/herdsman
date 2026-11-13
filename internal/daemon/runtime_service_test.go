@@ -74,12 +74,9 @@ func legacyStart(t *testing.T, h *harness, repo string) *ops.Operation {
 	return op
 }
 
-// Gate "Upgrade", new side, under the experiment fallback of spec section 5: a
-// new account starts on the Herdr TUI, core is refused without the marker
-// (naming it), and with experimental = true in [runtime.core] the account
-// plans a core start, with no fallback to the TUI; the flag picks the TUI for
-// one run.
-func TestNewInstallationSelectsCoreOnlyAsTheExperiment(t *testing.T) {
+// A fresh account plans core without a backend override or experiment marker.
+// Explicit TUI selection remains available, and a misspelling never falls back.
+func TestNewInstallationSelectsCoreByDefault(t *testing.T) {
 	h := newAccountHarness(t)
 	c := routeClient(t, h)
 	ctx := context.Background()
@@ -87,38 +84,22 @@ func TestNewInstallationSelectsCoreOnlyAsTheExperiment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if def.GetBackend() != runtime.BackendTUI || def.GetSource() != "new-store" {
+	if def.GetBackend() != runtime.BackendCore || def.GetSource() != "new-store" {
 		t.Fatalf("%+v", def)
 	}
 	repo := filepath.Join(h.ph, "proj")
 	coreReq := upRequest(repo)
 	coreReq.OrchestratorCommand = "codex --no-daemon"
-	coreReq.Backend = runtime.BackendCore
-	_, err = c.Route.Up(ctx, coreReq)
-	if codeOf(err) != rpc.FailedPrecondition || refusalCode(t, err) != runtime.CodeBackendExperimental || !strings.Contains(err.Error(), "experimental = true in [runtime.core]") {
-		t.Fatalf("core without the marker: %v", err)
-	}
-	doc, err := c.Runtime.Doctor(ctx, &daemonv1.RuntimeServiceDoctorRequest{Repo: repo, Backend: runtime.BackendCore})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc.GetSelection().GetBackend() != "" || !hasCheck(doc, "selection", "fail", "experimental = true") {
-		t.Fatalf("doctor without the marker: %+v", doc)
-	}
-	// Opted in: core is planned, and the run says once that it is an
-	// experiment.
-	optInCore(t, h)
-	coreReq.Backend = ""
 	planned, err := c.Route.Up(ctx, coreReq)
 	if err != nil || planned.GetStart().GetBackend() != runtime.BackendCore || !strings.Contains(planned.GetStart().GetPlan(), "backend: herdr-core") {
 		t.Fatalf("%v %v", planned, err)
 	}
-	doc, err = c.Runtime.Doctor(ctx, &daemonv1.RuntimeServiceDoctorRequest{Repo: repo})
+	doc, err := c.Runtime.Doctor(ctx, &daemonv1.RuntimeServiceDoctorRequest{Repo: repo})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.GetSelection().GetExperiment() != runtime.ExperimentNotice || !hasCheck(doc, "experiment", "warn", runtime.ExperimentLabel) {
-		t.Fatalf("the experiment is not said: %+v", doc)
+	if doc.GetSelection().GetBackend() != runtime.BackendCore || doc.GetSelection().GetExperiment() != "" || hasCheck(doc, "experiment", "warn", "") {
+		t.Fatalf("core default still needs an opt-in: %+v", doc)
 	}
 
 	// The flag selects the TUI for this run.
@@ -344,24 +325,8 @@ func TestSetDefaultAndDoctor(t *testing.T) {
 	if err != nil || set.GetPrevious() != runtime.BackendTUI {
 		t.Fatalf("%v %v", set, err)
 	}
-	// Core as the installation default is still the experiment: without the
-	// marker the selection fails and names it, and a task launch is refused
-	// the same way.
+	// Core selection does not require the historical experiment marker.
 	doc, err := c.Runtime.Doctor(ctx, &daemonv1.RuntimeServiceDoctorRequest{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc.GetSelection().GetBackend() != "" || !hasCheck(doc, "selection", "fail", "experimental = true in [runtime.core]") {
-		t.Fatalf("%+v", doc)
-	}
-	if err := h.d.taskBackend(ctx, ""); runtime.CodeOf(err) != runtime.CodeBackendExperimental {
-		t.Fatalf("%v", err)
-	}
-	marker := filepath.Join(h.dir, "core.toml")
-	if err := os.WriteFile(marker, []byte("[runtime.core]\nexperimental = true\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	doc, err = c.Runtime.Doctor(ctx, &daemonv1.RuntimeServiceDoctorRequest{ConfigPath: marker})
 	if err != nil {
 		t.Fatal(err)
 	}

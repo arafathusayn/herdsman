@@ -27,6 +27,11 @@ func (s *runtimeService) describe(out *daemonv1.Execution) {
 	if backend != runtime.BackendCore || id == "" {
 		return
 	}
+	if c := s.d.coreRT(); c != nil && c.views != nil {
+		if b := c.views.Binding(id); b != nil {
+			out.TuiBinding = &daemonv1.TuiBinding{Socket: b.Socket, Pane: b.Pane}
+		}
+	}
 	if svc := s.d.noticeSvc(); svc != nil {
 		if list, err := svc.List(id); err == nil {
 			out.Notices, out.Attention = noticeView(list)
@@ -97,7 +102,7 @@ func noticeView(list []notice.Notice) (*daemonv1.NoticeSummary, []*daemonv1.Atte
 }
 
 // Show implements RuntimeService.Show: the provider focuses the execution's
-// existing view. It creates nothing and types nothing.
+// native view and, when configured, explicitly reattaches its optional TUI view.
 func (s *runtimeService) Show(ctx context.Context, req *daemonv1.RuntimeServiceShowRequest) (*daemonv1.RuntimeServiceShowResponse, error) {
 	if req.GetExecutionId() == "" {
 		return nil, rpc.Errorf(rpc.InvalidArgument, "the request names no execution")
@@ -122,6 +127,14 @@ func (s *runtimeService) Show(ctx context.Context, req *daemonv1.RuntimeServiceS
 	if c := s.d.coreRT(); c != nil && row.Backend == runtime.BackendCore {
 		// The route's own core and app, as its start persisted them.
 		p = c.routeProvider(row.Repo, row.Route)
+		if row.Route == "" {
+			e := executionOf(row)
+			cp := c.provider(c.executionEndpoint(e).Socket)
+			if app := c.appFor(e); app != nil {
+				cp.App = app
+			}
+			p = cp
+		}
 	} else {
 		var err error
 		if p, err = s.d.runtimeRegistry().Open(row.Backend, endpoint); err != nil {
@@ -134,6 +147,13 @@ func (s *runtimeService) Show(ctx context.Context, req *daemonv1.RuntimeServiceS
 			return nil, rpc.Errorf(rpc.FailedPrecondition, "%v", err)
 		}
 		return nil, rpc.Errorf(rpc.Unavailable, "%v", err)
+	}
+	if c := s.d.coreRT(); c != nil && row.Backend == runtime.BackendCore {
+		if e, ok := c.viewExecution(ctx, row.ID); ok {
+			if err := c.ensureView(ctx, e, true); err != nil {
+				return nil, rpc.Errorf(rpc.Unavailable, "native app shown; optional TUI view: %v", err)
+			}
+		}
 	}
 	return &daemonv1.RuntimeServiceShowResponse{Backend: row.Backend}, nil
 }

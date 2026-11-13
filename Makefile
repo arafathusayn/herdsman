@@ -177,7 +177,7 @@ acceptance:
 ## live-core: the herdr-core section 17 gates against private cores of the
 ## installed hc (darwin/arm64; never the user's core or the herdr app)
 live-core:
-	HERDSMAN_HC_LIVE=1 GOFLAGS=-mod=vendor GOPROXY=off GOMAXPROCS=1 nice -n 10 go test -count=1 -p 1 -run Live ./internal/hc/... ./internal/runtime/core/
+	HERDSMAN_HC_LIVE=1 GOFLAGS=-mod=vendor GOPROXY=off GOMAXPROCS=1 nice -n 10 go test -count=1 -p 1 -run Live ./internal/hc/... ./internal/runtime/core/ ./internal/coreview/
 
 ## live-app: the native visibility and endpoint mismatch gates with a real
 ## herdr app window, opened with a fresh app home on a private core and quit

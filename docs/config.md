@@ -223,7 +223,7 @@ Runtime chooses where agents run. The section is strict: an unknown key stops th
 
 | Key | Type | Description |
 | --- | --- | --- |
-| `backend` | string | "herdr-core" or "herdr-tui". Unset means the installation default, which `herdsman runtime default` prints: herdr-tui on every installation while herdr-core ships as an experiment. A route that exists keeps the backend it started on. |
+| `backend` | string | "herdr-core" or "herdr-tui". Unset means the installation default, which `herdsman runtime default` prints: herdr-core for a new installation. Existing installations and routes retain their recorded backend. |
 
 ### [runtime.core]
 
@@ -236,7 +236,7 @@ RuntimeCore says how to reach herdr-core. A new route resolves its endpoint once
 | `session` | string | The core session, one path segment. The default is "default". A socket and a session that name different endpoints stop the run with both named. |
 | `connect_timeout` | string | How long a connection to core may take to answer, such as "5s". The default is 5 seconds. |
 | `ready_timeout` | string | How long an agent may take to become ready after it registers, such as "90s". The default is 90 seconds. |
-| `experimental` | boolean | Must be true while the backend ships as an experiment (this release: runtime.core/0.1.0). Without it a new route on herdr-core is refused with backend_experimental; a route already on core keeps running there. |
+| `experimental` | boolean | Compatibility key accepted from earlier experimental configurations. It has no effect: herdr-core is the default for new installations. |
 
 ### [runtime.app]
 
@@ -250,9 +250,9 @@ RuntimeApp says which native herdr app shows a route's agents. The app's binding
 
 ### [runtime.tui_view]
 
-RuntimeTuiView mirrors core agents in the Herdr TUI. It never changes the execution backend. The mirror is not available in this release: enabled = true stops every run with invalid_runtime_config, and socket alone is accepted and changes nothing.
+RuntimeTuiView mirrors core agents in the Herdr TUI. It never changes the execution backend or the required native-app visibility. Reports are expiring display metadata; the TUI owns no harness identity or readiness.
 
 | Key | Type | Description |
 | --- | --- | --- |
-| `enabled` | boolean | Mirror core agents in the TUI. Off unless set; true is refused in this release. |
-| `socket` | string | The TUI's absolute socket path, for the mirror of a later release. |
+| `enabled` | boolean | Mirror core agents in dedicated TUI workspaces. Off unless set. Enabling requires an explicit absolute socket path. |
+| `socket` | string | The TUI's absolute socket path. No ambient pane or session is used. |

@@ -263,9 +263,9 @@ func (d *Daemon) doctorSettings(s coreconfig.Settings, endpoint coreconfig.Endpo
 	} {
 		check(v.name, "ok", v.s.String())
 	}
-	view := "off (" + s.TUIView.From + "); the Herdr TUI view of core agents is not available in this release"
+	view := s.TUIView.String() + "; optional attachment with expiring display metadata; native app visibility remains required"
 	if s.TUIViewSocket.Value != "" {
-		view += "; socket " + s.TUIViewSocket.String() + " is accepted and changes nothing"
+		view += "; socket " + s.TUIViewSocket.String()
 	}
 	check("tui-view", "ok", view)
 }

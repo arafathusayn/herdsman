@@ -76,6 +76,15 @@ func (d *Daemon) startNotices() {
 	svc := notice.New(noticeStore{d}, noticeExecutions{d}, notice.Config{
 		Poll: c.Poll, Renewal: c.Renewal, HeldGrace: c.HeldGrace, WaitGrace: c.WaitGrace, RecoveryGrace: c.RecoveryGrace,
 		GenerationGap: c.GenerationGap, MaxWaits: c.MaxWaits, Boot: boot, Emit: d.emitNotice, Trace: d.traceNotice,
+		Queued: func(kind string) bool { return kind == "codex" },
+		Queue: func(ctx context.Context, e runtime.Execution, line string) error {
+			c := d.coreRT()
+			if c == nil {
+				return notice.ErrQueueNotReady
+			}
+			p := c.provider(c.executionEndpoint(e).Socket)
+			return p.QueueCodex(ctx, e, line, c.launch().Login)
+		},
 		Attended: func(kind string) bool {
 			a, err := core.AdapterFor(kind)
 			return err == nil && !a.Unattended()
@@ -362,6 +371,10 @@ func (s *noticeRPC) Wait(ctx context.Context, req *daemonv1.NoticeServiceWaitReq
 	if err != nil {
 		return nil, err
 	}
+	if err := svc.ObserveCall(callerOf(ctx)); err != nil {
+		return nil, noticeFailure(err)
+	}
+
 	releaseContext(ctx)
 	a, err := svc.Wait(ctx, callerOf(ctx), notice.WaitRequest{WaitID: req.GetWaitId(), Generation: req.GetWaitGeneration(), After: req.GetAfter()})
 	if err != nil {
@@ -383,6 +396,10 @@ func (s *noticeRPC) Read(ctx context.Context, req *daemonv1.NoticeServiceReadReq
 	if err != nil {
 		return nil, err
 	}
+	if err := svc.ObserveCall(callerOf(ctx)); err != nil {
+		return nil, noticeFailure(err)
+	}
+
 	a, err := svc.Read(ctx, callerOf(ctx), req.GetId())
 	if err != nil {
 		return nil, noticeFailure(err)
@@ -404,6 +421,10 @@ func (s *noticeRPC) Ack(ctx context.Context, req *daemonv1.NoticeServiceAckReque
 	if err != nil {
 		return nil, err
 	}
+	if err := svc.ObserveCall(callerOf(ctx)); err != nil {
+		return nil, noticeFailure(err)
+	}
+
 	a, err := svc.Ack(ctx, callerOf(ctx), req.GetId(), req.GetToken(), req.GetOutcome(), req.GetRecord())
 	if err != nil {
 		return nil, noticeFailure(err)

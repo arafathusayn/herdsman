@@ -25,6 +25,9 @@ type CoreDescriptor struct {
 	// Harness is the agent's argv. Argv[0] is the absolute path core sees,
 	// resolved in preflight through core.
 	Harness []string `json:"harness"`
+	// Sandbox is the daemon-generated permissions configuration. It is
+	// separate from user arguments and verified in the wrapper before exec.
+	Sandbox []string `json:"sandbox,omitempty"`
 	// Prelude are the launch's prelude steps with the numbers their marker
 	// files carry in StepsDir.
 	Prelude   []NumberedStep `json:"prelude,omitempty"`
@@ -139,7 +142,7 @@ func (d CoreDescriptor) Digest() string {
 
 // ArgvDigest is the digest of the harness argv alone.
 func (d CoreDescriptor) ArgvDigest() string {
-	sum := sha256.Sum256([]byte(strings.Join(d.Harness, "\x00")))
+	sum := sha256.Sum256([]byte(strings.Join(d.Argv(), "\x00")))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -183,4 +186,12 @@ func CoreEnv(d CoreDescriptor, own []string, granted []string) []string {
 		out = append(out, k+"="+env[k])
 	}
 	return out
+}
+
+// Argv is the exact harness command, including a daemon-owned sandbox.
+func (d CoreDescriptor) Argv() []string {
+	if len(d.Harness) == 0 {
+		return nil
+	}
+	return slices.Concat(d.Harness[:1], d.Sandbox, d.Harness[1:])
 }

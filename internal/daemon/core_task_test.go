@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/arafathusayn/herdsman/internal/notice"
@@ -46,5 +47,24 @@ func TestCoreTaskLaunchThroughTheDaemon(t *testing.T) {
 	}
 	if c := w.Core.Calls("terminal.send") + w.Core.Calls("terminal.keys"); c != 0 {
 		t.Errorf("the task launch typed %d times", c)
+	}
+}
+
+func TestCoreTaskCommandPreservesQuotingAndPrelude(t *testing.T) {
+	s, repo := shareRepo(t, "")
+	s.OnCore = func(context.Context, string) bool { return true }
+	var got route.TaskLaunch
+	s.CoreTask = func(_ context.Context, q route.TaskLaunch) (route.TaskStarted, error) {
+		got = q
+		return route.TaskStarted{}, nil
+	}
+	_, err := s.New(context.Background(), WorktreeNewRequest{Dir: repo, Task: "quoted", Base: "main", NoSetup: true,
+		Agent: `printf '%s' 'prepare this' && EXAMPLE='two words' codex --no-daemon -c 'model="example model"'`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"codex", "--no-daemon", "-c", `model="example model"`}
+	if !slices.Equal(got.Command, want) || got.Env["EXAMPLE"] != "two words" || len(got.Prelude) != 1 || got.Prelude[0].Command.Argv[2] != "prepare this" {
+		t.Fatalf("task command lost its structure: %+v", got)
 	}
 }

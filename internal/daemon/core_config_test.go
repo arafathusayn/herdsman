@@ -199,7 +199,7 @@ func TestCoreConfigMistakesStopTheRun(t *testing.T) {
 		"duration":      {"ready_timeout = \"soon\"", "", "runtime.core.ready_timeout"},
 		"visibility":    {"", "[runtime.app]\nvisibility_timeout = \"0s\"\n", "runtime.app.visibility_timeout"},
 		"app home":      {"", "[runtime.app]\nhome = \"relative\"\n", "[runtime.app] home"},
-		"tui view":      {"", "[runtime.tui_view]\nenabled = true\nsocket = \"/srv/herdr.sock\"\n", "not available in this release"},
+		"tui view":      {"", "[runtime.tui_view]\nenabled = true\n", "absolute socket"},
 	} {
 		writeCoreConfig(t, h, tc.core, tc.rest)
 		_, err := c.Route.Up(ctx, dry)
@@ -229,7 +229,7 @@ func TestRuntimeDoctorReportsEachValueAndItsSource(t *testing.T) {
 	for name, want := range map[string]string{
 		"core-socket": w.Core.Socket + " (default", "core-binary": "hc (default)", "core-session": "none (default)",
 		"connect-timeout": "5s (default)", "ready-timeout": "7s (project file " + path + ")", "app-binary": "herdr-app (default)",
-		"app-home": w.AppHome + " (default)", "visibility-timeout": "15s (default)", "tui-view": "not available in this release",
+		"app-home": w.AppHome + " (default)", "visibility-timeout": "15s (default)", "tui-view": "optional attachment",
 	} {
 		if !strings.Contains(got[name], want) {
 			t.Errorf("%s: %q; want %q", name, got[name], want)

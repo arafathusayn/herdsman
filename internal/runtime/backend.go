@@ -50,13 +50,10 @@ const (
 	CodeInvalidRuntimeConfig = "invalid_runtime_config"
 )
 
-// CoreExperimental is true while herdr-core ships as an experiment (spec
-// section 5, "If a gate is still open at the release candidate"): gates that
-// need upstream changes (a guarded submit, a send id, the time of the last
-// human input) are open, so a new route selects core only with
-// experimental = true in [runtime.core]. Core graduates in a minor release by
-// setting this to false; the marker is then accepted and does nothing.
-const CoreExperimental = true
+// CoreExperimental retains compatibility with experimental configurations.
+// Core is the default backend; the old opt-in marker is accepted but has no
+// effect. Capability checks still refuse unsupported operations explicitly.
+const CoreExperimental = false
 
 // ExperimentLabel is the version label the experiment is announced with, as
 // every experimental surface carries one.

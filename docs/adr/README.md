@@ -35,6 +35,7 @@ One record per decision. `TestEveryDecisionRecordIsIndexed` keeps the set comple
 | [0029](0029-a-repository-for-project-knowledge.md) | A repository for project knowledge |
 | [0030](0030-recommending-tools-for-a-setup.md) | Recommending tools for a setup |
 | [0031](0031-proving-the-speed-claim.md) | Proving the speed claim |
-| [0032](0032-herdr-core-runs-the-agents-of-new-installations.md) | Each installation chooses where its agents run |
+| [0032](0032-herdr-core-runs-the-agents-of-new-installations.md) | Herdr-core runs the agents of new installations |
 | [0033](0033-instructions-reach-agents-as-notices.md) | Instructions reach agents as notices |
 | [0034](0034-a-worker-socket-for-notice-calls.md) | A worker socket for notice calls |
+| [0035](0035-optional-core-views-in-the-tui.md) | Optional core views in the Herdr TUI |

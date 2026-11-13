@@ -74,11 +74,19 @@ type Event struct {
 }
 
 func (e *Event) UnmarshalJSON(b []byte) error {
-	if err := requireFields(b, "event", "seq!", "terminal", "type!"); err != nil {
+	if err := requireFields(b, "event", "seq!", "type!"); err != nil {
 		return err
 	}
 	type plain Event
-	return json.Unmarshal(b, (*plain)(e))
+	if err := json.Unmarshal(b, (*plain)(e)); err != nil {
+		return err
+	}
+	// Global document events omit terminal. Future global event kinds must
+	// also be tolerated; only known terminal events require that field.
+	if e.Type != EventDoc && slices.Contains(EventTypes, e.Type) {
+		return requireFields(b, "event", "terminal!")
+	}
+	return nil
 }
 
 // UpdateKind says what an Update carries.

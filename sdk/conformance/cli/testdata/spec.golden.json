@@ -1006,9 +1006,10 @@
     {
       "name": "launch",
       "summary": "Run one agent launch in a herdr-core terminal; herdr-core runs it, not a person.",
-      "help": "usage: herdsman launch --socket <path> --intent <id>\n\nThe program herdr-core starts in the terminal of a reserved launch. It proves\nto the daemon that it is that terminal's process, runs the prelude, registers,\nand then becomes the harness. A person never runs it; up does, through core.\n\nexit codes:\n  0   never: on success the process becomes the harness\n  64  usage error\n  70  the daemon refused the launch\n  71  a prelude step failed\n  72  the launch was not registered\n  73  the harness could not start\n  74  the daemon's launch socket could not be reached\n",
+      "help": "usage: herdsman launch --socket <path> --intent <id>\n       herdsman launch --view <descriptor>\n\nThe program herdr-core starts in the terminal of a reserved launch. It proves\nto the daemon that it is that terminal's process, runs the prelude, registers,\nand then becomes the harness. A person never runs it; up does, through core.\nThe optional TUI view uses --view to attach a helper to an existing execution.\nClosing that view never stops the execution.\n\nexit codes:\n  0   never: on success the process becomes the harness\n  64  usage error\n  70  the daemon refused the launch\n  71  a prelude step failed\n  72  the launch was not registered\n  73  the harness could not start\n  74  the daemon's launch socket could not be reached\n",
       "usage": [
-        "herdsman launch --socket <path> --intent <id>"
+        "herdsman launch --socket <path> --intent <id>",
+        "herdsman launch --view <descriptor>"
       ],
       "flags": [
         {
@@ -1018,6 +1019,10 @@
         {
           "name": "--socket",
           "valueName": "path"
+        },
+        {
+          "name": "--view",
+          "valueName": "descriptor"
         }
       ],
       "exitCodes": [
@@ -2371,7 +2376,7 @@
     {
       "name": "runtime",
       "summary": "Where agents run: runtime doctor, runtime ls, runtime default, runtime submit, runtime show.",
-      "help": "usage: herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]\n       herdsman runtime ls [--route <route>] [--json]\n       herdsman runtime default [<backend>] [--json]\n       herdsman runtime submit <execution> <line> [--yes] [--again] [--json]\n       herdsman runtime show <execution> [--json]\n\nWhere agents run. A backend is herdr-core or herdr-tui. A new route takes\n--backend, then the config file's [runtime] backend, then the installation\ndefault; a route that exists keeps the backend it started on. herdr-core ships\nas an experiment (runtime.core/0.1.0): a new route there also needs\nexperimental = true in [runtime.core], and every installation's default is\nherdr-tui.\n\nexit codes:\n  0  done; for doctor, the selected backend can run\n  1  the daemon refused or is not running; for doctor, a check failed\n  2  bad usage\n",
+      "help": "usage: herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]\n       herdsman runtime ls [--route <route>] [--json]\n       herdsman runtime default [<backend>] [--json]\n       herdsman runtime submit <execution> <line> [--yes] [--again] [--json]\n       herdsman runtime show <execution> [--json]\n\nWhere agents run. A backend is herdr-core or herdr-tui. A new route takes\n--backend, then the config file's [runtime] backend, then the installation\ndefault; a route that exists keeps the backend it started on. New installations\nand new config files select herdr-core. Existing installations keep their\nrecorded choice. The optional herdr-tui backend is an explicit configuration\nchoice; the native app remains required for core visibility.\n\nexit codes:\n  0  done; for doctor, the selected backend can run\n  1  the daemon refused or is not running; for doctor, a check failed\n  2  bad usage\n",
       "usage": [
         "herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]",
         "herdsman runtime ls [--route <route>] [--json]",

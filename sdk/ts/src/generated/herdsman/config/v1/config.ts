@@ -64,9 +64,8 @@ export interface Config {
 export interface Runtime {
   /**
    * "herdr-core" or "herdr-tui". Unset means the installation default, which
-   * `herdsman runtime default` prints: herdr-tui on every installation while
-   * herdr-core ships as an experiment. A route that exists keeps the backend
-   * it started on.
+   * `herdsman runtime default` prints: herdr-core for a new installation.
+   * Existing installations and routes retain their recorded backend.
    */
   backend?: string;
   core?: RuntimeCore;
@@ -110,9 +109,8 @@ export interface RuntimeCore {
    */
   readyTimeout?: string;
   /**
-   * Must be true while the backend ships as an experiment (this release:
-   * runtime.core/0.1.0). Without it a new route on herdr-core is refused with
-   * backend_experimental; a route already on core keeps running there.
+   * Compatibility key accepted from earlier experimental configurations.
+   * It has no effect: herdr-core is the default for new installations.
    */
   experimental?: boolean;
 }
@@ -141,18 +139,17 @@ export interface RuntimeApp {
 
 /**
  * RuntimeTuiView mirrors core agents in the Herdr TUI. It never changes the
- * execution backend. The mirror is not available in this release: enabled =
- * true stops every run with invalid_runtime_config, and socket alone is
- * accepted and changes nothing.
+ * execution backend or the required native-app visibility. Reports are
+ * expiring display metadata; the TUI owns no harness identity or readiness.
  */
 export interface RuntimeTuiView {
   /**
-   * Mirror core agents in the TUI. Off unless set; true is refused in this
-   * release.
+   * Mirror core agents in dedicated TUI workspaces. Off unless set.
+   * Enabling requires an explicit absolute socket path.
    */
   enabled?: boolean;
   /**
-   * The TUI's absolute socket path, for the mirror of a later release.
+   * The TUI's absolute socket path. No ambient pane or session is used.
    */
   socket?: string;
 }

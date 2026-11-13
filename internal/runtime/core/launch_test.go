@@ -15,6 +15,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/hc/hctest"
 	"github.com/arafathusayn/herdsman/internal/herdrapp"
 	"github.com/arafathusayn/herdsman/internal/launch"
+	"github.com/arafathusayn/herdsman/internal/profile"
 	"github.com/arafathusayn/herdsman/internal/runtime"
 	"github.com/arafathusayn/herdsman/internal/runtime/core"
 )
@@ -34,6 +35,7 @@ func TestLaunchTransactionOnCore(t *testing.T) {
 		t.Fatalf("preflight = %+v", pre)
 	}
 	l := w.launchOf("alpha", "alpha-orchestrator", "orchestrator", "claude")
+	l.CoreSocket, l.CoreBinary = "/private/task-core.sock", "/opt/core/hc"
 	rec := w.spawn(l)
 	if rec.ID != l.Execution || rec.TerminalAddress == "" || rec.Observation.Process != runtime.ProcessStarting {
 		t.Fatalf("spawned record = %+v", rec)
@@ -76,6 +78,9 @@ func TestLaunchTransactionOnCore(t *testing.T) {
 	if rec.Observation.Visibility != runtime.VisibilityVerified || rec.App.PaneID == "" {
 		t.Fatalf("visibility record = %+v %+v", rec.Observation, rec.App)
 	}
+	if rec.App.Socket != l.CoreSocket || rec.App.Binary != l.CoreBinary {
+		t.Fatal("app adoption lost the execution's pinned endpoint")
+	}
 	if _, ok, _ := w.bindings.Load(w.appHome, w.core.ID); !ok {
 		t.Fatal("the binding was not persisted")
 	}
@@ -112,7 +117,7 @@ func TestPreflightRefusals(t *testing.T) {
 		{"endpoint", core.PreflightInput{Kind: "claude", Argv: []string{"claude"}, ExpectCore: "another-core"}, core.CodeEndpointMismatch},
 		{"unqualified", core.PreflightInput{Kind: "gemini", Argv: []string{"gemini"}}, core.CodeUnqualified},
 		{"codex without --no-daemon", core.PreflightInput{Kind: "codex", Argv: []string{"codex", "--model", "x"}}, core.CodeUnqualified},
-		{"restricted", core.PreflightInput{Kind: "codex", Argv: []string{"codex", "--no-daemon"}, Restricted: true}, core.CodeRestricted},
+		{"restricted", core.PreflightInput{Kind: "claude", Argv: []string{"claude"}, Restricted: true}, core.CodeRestricted},
 	}
 	for _, tc := range cases {
 		_, err := core.Preflight(ctx, c, tc.in)
@@ -237,7 +242,7 @@ func TestWrapperOfAnotherProcessIsRefused(t *testing.T) {
 	}()
 	time.Sleep(50 * time.Millisecond)
 	w.peer.Store(int64(stranger))
-	wr := &launch.Wrapper{Socket: w.reg.Path, Intent: l.Intent, Environ: []string{}, Stderr: &strings.Builder{}, DialWait: time.Second,
+	wr := &launch.Wrapper{VerifySandbox: profile.CheckCoreLaunch, Socket: w.reg.Path, Intent: l.Intent, Environ: []string{}, Stderr: &strings.Builder{}, DialWait: time.Second,
 		Exec: func(string, []string, []string) error { t.Fatal("a refused wrapper started its harness"); return nil }}
 	if code := wr.Main(testCtx(t)); code != launch.ExitRefused {
 		t.Fatalf("wrapper code = %d", code)

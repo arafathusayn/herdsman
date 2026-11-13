@@ -23,8 +23,10 @@ import (
 // itself with the harness, which keeps its pid (spec sections 6, 8 and 13).
 
 // WrapProtocol is the version of the launch socket's messages. Both ends are
-// the same build; the version only refuses a mismatched daemon clearly.
-const WrapProtocol = 1
+// the same build. Version 2 requires restricted descriptors to be verified
+// before registration: a version 1 wrapper would silently ignore the sandbox
+// field and must be refused.
+const WrapProtocol = 2
 
 // The wrapper's requests, in the order they are sent on one connection.
 const (
@@ -77,6 +79,9 @@ type Wrapper struct {
 	Stderr io.Writer
 	// DialWait bounds the wait for the launch socket (default 30 s).
 	DialWait time.Duration
+	// VerifySandbox is installed by the executable's server wiring. A
+	// restricted descriptor is refused when no verifier is configured.
+	VerifySandbox func(ctx context.Context, binary, cwd string, env, config, args []string) error
 }
 
 func (w *Wrapper) defaults() {
@@ -209,6 +214,22 @@ func (w *Wrapper) Main(ctx context.Context) int {
 		return w.fail(ExitPrelude, "%v", err)
 	}
 
+	if len(d.Sandbox) > 0 {
+		if d.Kind != "codex" {
+			return w.fail(ExitRefused, "only Codex has a qualified core sandbox")
+		}
+		if w.VerifySandbox == nil {
+			return w.fail(ExitRefused, "restricted launch has no sandbox verifier")
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := w.VerifySandbox(checkCtx, d.Harness[0], d.Cwd, env, d.Sandbox, d.Harness[1:])
+		cancel()
+		if err != nil {
+			_, _ = c.call(WrapRequest{Op: WrapFailed, Intent: w.Intent, Reason: err.Error()})
+			return w.fail(ExitRefused, "%v", err)
+		}
+	}
+
 	// Moment two: the daemon checks the peer again and records it as the
 	// execution's process evidence.
 	rep, err = c.call(WrapRequest{Op: WrapRegister, Intent: w.Intent})
@@ -219,7 +240,7 @@ func (w *Wrapper) Main(ctx context.Context) int {
 		return w.fail(ExitNotRegistered, "the daemon did not register this launch: %s", rep.Error)
 	}
 	_ = nc.Close()
-	if err := w.Exec(d.Harness[0], d.Harness, env); err != nil {
+	if err := w.Exec(d.Harness[0], d.Argv(), env); err != nil {
 		return w.fail(ExitExec, "start %s: %v", d.Harness[0], err)
 	}
 	return 0 // only a test's Exec returns

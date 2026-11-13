@@ -57,7 +57,7 @@ func starting(l Launch, coreID string, now time.Time) runtime.Execution {
 		ArgvDigest: l.Descriptor.ArgvDigest(), PolicyDigest: l.Descriptor.Digest(), Desired: runtime.DesiredRunning,
 		Observation: runtime.Observation{Process: runtime.ProcessStarting, Readiness: runtime.ReadinessWaiting, Program: runtime.ProgramUnknown,
 			Visibility: runtime.VisibilityUnverified, Orchestration: runtime.OrchestrationActive, ObservedAt: now},
-		App: &runtime.AppBinding{CoreID: coreID, SpaceID: l.Placement.Space, TabID: l.Placement.Tab, Visibility: runtime.VisibilityUnverified},
+		App: &runtime.AppBinding{Socket: l.CoreSocket, Binary: l.CoreBinary, CoreID: coreID, SpaceID: l.Placement.Space, TabID: l.Placement.Tab, Visibility: runtime.VisibilityUnverified},
 	}
 }
 
@@ -163,6 +163,7 @@ func (p *Provider) RegisterStep(ctx context.Context, l Launch, timeouts Timeouts
 		now := p.now()
 		next := rec
 		next.Evidence = ev
+		next.ArgvDigest, next.PolicyDigest = l.Descriptor.ArgvDigest(), l.Descriptor.Digest()
 		next.LaunchGuard = "registered " + now.UTC().Format(time.RFC3339Nano)
 		next.Observation.Process, next.Observation.ObservedAt = runtime.ProcessLive, now
 		next.LastVerifiedAt = now
@@ -254,7 +255,12 @@ func (p *Provider) VisibilityStep(ctx context.Context, l Launch, timeouts Timeou
 	if err != nil {
 		return rec, err
 	}
+	endpointSocket, endpointBinary := l.CoreSocket, l.CoreBinary
+	if rec.App != nil && rec.App.Socket != "" {
+		endpointSocket, endpointBinary = rec.App.Socket, rec.App.Binary
+	}
 	rec.App = res.AppBinding(c.Core().ID)
+	rec.App.Socket, rec.App.Binary = endpointSocket, endpointBinary
 	rec.Observation.Visibility = runtime.Visibility(res.State)
 	rec.Observation.App = runtime.AppOpen
 	if res.AppClosed {
