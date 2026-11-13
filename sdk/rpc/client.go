@@ -31,6 +31,14 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	for name, values := range t.Header {
 		out.Header[name] = values
 	}
+	if preview, _ := req.Context().Value(previewKey{}).(bool); preview {
+		switch out.Header.Get("Content-Type") {
+		case ContentTypeProto:
+			out.Header.Set("Content-Type", ContentTypePreviewProto)
+		case ContentTypeJSON:
+			out.Header.Set("Content-Type", ContentTypePreviewJSON)
+		}
+	}
 	out.Header.Set(HeaderProtocolVersion, ProtocolVersion)
 	if end, ok := req.Context().Deadline(); ok {
 		out.Header.Set(HeaderTimeout, timeoutHeader(time.Until(end)))

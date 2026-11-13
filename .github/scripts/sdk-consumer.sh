@@ -35,13 +35,19 @@ package main
 import (
 	"fmt"
 
+	"$module/client"
 	"$module/version"
 )
+
+// The client pulls in the generated services and the wire binding, so this
+// fails when any of them cannot build outside the repository.
+var _ client.Options
 
 func main() { fmt.Println(version.Version) }
 EOF
 
-go get "$module@$commit"
+# Naming the packages records the sums of what they import.
+go get "$module/version@$commit" "$module/client@$commit"
 go build -o consumer .
 
 resolved=$(go list -m -f '{{.Version}}' "$module")

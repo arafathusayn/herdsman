@@ -21,6 +21,8 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+
+	"github.com/arafathusayn/herdsman/internal/gitrun"
 )
 
 // ErrNotRepository reports a path that is neither a working tree root nor a
@@ -55,6 +57,7 @@ type Head struct {
 // Reader reads one repository, from the point of view of the worktree it was
 // opened on. It is safe for concurrent use.
 type Reader struct {
+	git       *gitrun.Runner // Runs the fallback calls; nil means no trace.
 	gitDir    string
 	commonDir string
 	linked    bool

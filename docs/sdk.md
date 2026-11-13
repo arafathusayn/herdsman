@@ -51,3 +51,11 @@ The package `@herdsman/sdk` lives in `sdk/ts`. It runs on plain `fetch` and JSON
 ## Compatibility
 
 A released contract only grows; see [ADR 0003](adr/0003-public-interfaces-only-ever-grow.md). `sdk/version` holds the contract version, which `spec cli` also reports. The exceptions are listed under [experimental surfaces](experimental.md).
+
+## Mutation previews
+
+Implemented MessageService mutations and route lifecycle methods accept `dry_run` (`DryRun` in Go, `dryRun` in TypeScript). They return a plan without performing the requested change. A plan describes current admission checks; it does not reserve the state or guarantee a later write. Runtime `ResumeGoal`, configuration edits, project/task records, plugins, suggestions and ledger mutations do not advertise previews until their handlers implement them.
+
+The Go SDK, TypeScript SDK and MCP client send previews with `application/vnd.herdsman.preview+proto` or `application/vnd.herdsman.preview+json`. The payload remains ordinary protobuf or protobuf JSON and the response keeps its standard encoding. These media types are required for safe previews: an older daemon rejects them before calling a handler, instead of ignoring an unknown `dry_run` field and executing the write. Raw HTTP or stock Connect clients must select the preview media type explicitly. Never retry an unsupported preview using the ordinary media type.
+
+A daemon also rejects preview encoding when the decoded method has no true `dry_run` field. MCP uses the schema spelling `dry_run` and refuses unsupported previews locally. Message previews retain caller authentication, admission and boundary checks; a refusal does not write stale-proof latches or exposure records. Real delivery still writes those safety records.

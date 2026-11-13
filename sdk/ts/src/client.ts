@@ -108,10 +108,15 @@ async function invoke(path: string, request: unknown, options: ClientOptions, ca
   }
   const deadline = timeoutMs === undefined ? undefined : AbortSignal.timeout(Math.ceil(timeoutMs));
   const signals = [call.signal, deadline].filter((signal) => signal !== undefined);
+  const headers = headersFor(options, call, timeoutMs);
+  const preview = request as { dryRun?: unknown; dry_run?: unknown } | null;
+  if (preview?.dryRun === true || preview?.dry_run === true) {
+    headers.set("Content-Type", "application/vnd.herdsman.preview+json");
+  }
   const init: RequestInit = {
     ...options.init,
     method: "POST",
-    headers: headersFor(options, call, timeoutMs),
+    headers,
     body: JSON.stringify(request),
   };
   if (signals.length > 0) init.signal = AbortSignal.any(signals);

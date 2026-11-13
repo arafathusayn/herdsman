@@ -30,6 +30,14 @@ func startDaemon(t *testing.T) string {
 	if socket := os.Getenv("HERDSMAN_CONFORMANCE_SOCKET"); socket != "" {
 		return socket
 	}
+	socket, _ := startDaemonWith(t)
+	return socket
+}
+
+// startDaemonWith starts a daemon with env added to its environment and returns
+// its socket and private home.
+func startDaemonWith(t *testing.T, env ...string) (string, string) {
+	t.Helper()
 	// Socket paths have a short limit, and t.TempDir can exceed it.
 	dir, err := os.MkdirTemp("", "hcd")
 	if err != nil {
@@ -49,7 +57,7 @@ func startDaemon(t *testing.T) string {
 		}
 	}
 	daemon := exec.Command(binary, "daemon", "run")
-	daemon.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "HERDSMAN_PRIVATE_HOME=" + private}
+	daemon.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "HERDSMAN_PRIVATE_HOME=" + private}, env...)
 	logFile, err := os.Create(filepath.Join(dir, "daemon.log"))
 	if err != nil {
 		t.Fatal(err)
@@ -67,12 +75,12 @@ func startDaemon(t *testing.T) string {
 	for end := time.Now().Add(startWait); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
 		if conn, err := net.Dial("unix", socket); err == nil {
 			_ = conn.Close()
-			return socket
+			return socket, private
 		}
 	}
 	log, _ := os.ReadFile(logFile.Name())
 	t.Fatalf("the daemon did not listen on its socket:\n%s", log)
-	return ""
+	return "", ""
 }
 
 // procedure is the path of one MessageService method.

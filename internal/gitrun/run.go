@@ -134,7 +134,7 @@ var redirecting = []string{
 func scrub(env []string) []string {
 	return slices.DeleteFunc(slices.Clone(env), func(entry string) bool {
 		name, _, _ := strings.Cut(entry, "=")
-		return slices.Contains(redirecting, name) ||
+		return slices.Contains(redirecting, name) || name == "GIT_NAMESPACE" ||
 			strings.HasPrefix(name, "GIT_CONFIG_KEY_") || strings.HasPrefix(name, "GIT_CONFIG_VALUE_")
 	})
 }

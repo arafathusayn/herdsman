@@ -37,21 +37,32 @@ func (d *Daemon) getOp(id string) (*ops.Operation, *APIError) {
 	return op, nil
 }
 
-func (d *Daemon) resolveOp(id string, step int, q ResolveRequest) (*ops.Operation, *APIError) {
-	var dec ops.Decision
+// resolveDecision reads a person's decision.
+func resolveDecision(q ResolveRequest) (ops.Decision, *APIError) {
 	switch q.Decision {
 	case "done":
-		dec = ops.ResolveDone
+		return ops.ResolveDone, nil
 	case "rerun":
-		dec = ops.ResolveRerun
-	default:
-		return nil, Errf("bad_request", "decision must be done or rerun, got %q", q.Decision)
+		return ops.ResolveRerun, nil
+	}
+	return 0, Errf("bad_request", "decision must be done or rerun, got %q", q.Decision)
+}
+
+// resolveRefusal is the answer when a decision cannot be recorded.
+func resolveRefusal(id string, err error) *APIError {
+	if errors.Is(err, ops.ErrNotFound) {
+		return Errf("not_found", "no operation %s", id)
+	}
+	return Errf("failed_precondition", "%v", err)
+}
+
+func (d *Daemon) resolveOp(id string, step int, q ResolveRequest) (*ops.Operation, *APIError) {
+	dec, e := resolveDecision(q)
+	if e != nil {
+		return nil, e
 	}
 	if err := d.ops.Resolve(id, step, dec); err != nil {
-		if errors.Is(err, ops.ErrNotFound) {
-			return nil, Errf("not_found", "no operation %s", id)
-		}
-		return nil, Errf("failed_precondition", "%v", err)
+		return nil, resolveRefusal(id, err)
 	}
 	d.driveLater(id)
 	op, err := d.ops.Get(id)

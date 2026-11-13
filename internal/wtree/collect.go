@@ -28,7 +28,7 @@ const (
 type RefSource interface {
 	Refs(ctx context.Context) ([]gitrefs.Ref, error)
 	Heads(ctx context.Context) ([]gitrefs.Head, error)
-	AheadBehind(ctx context.Context, base string) (map[string]gitrefs.Divergence, error)
+	AheadBehind(ctx context.Context, base string) (map[string]gitrefs.BranchDivergence, error)
 }
 
 // Row is one worktree in the table. Skeleton sets the identity fields without
@@ -47,9 +47,29 @@ type Row struct {
 	Status        Status
 	Divergence    gitrefs.Divergence // Against the default branch.
 	HasDivergence bool
+	Integration   Integration // Meaningful only with HasDivergence.
 	Subject       string
 	CommitTime    time.Time
 	Err           error // What could not be filled; other cells remain valid.
+}
+
+// Integration says how a branch's work relates to the default branch.
+type Integration string
+
+const (
+	IntegrationNone     Integration = ""         // Commits the default branch lacks.
+	IntegrationSame     Integration = "same"     // The same commit.
+	IntegrationAncestor Integration = "ancestor" // Every commit is already on it.
+)
+
+func integrationOf(d gitrefs.Divergence) Integration {
+	switch {
+	case d.Ahead > 0:
+		return IntegrationNone
+	case d.Behind == 0:
+		return IntegrationSame
+	}
+	return IntegrationAncestor
 }
 
 // Marks renders the state of the worktree itself for a table cell.
@@ -254,8 +274,9 @@ func (c *Collector) fillStatus(ctx context.Context, row *Row) {
 
 // fillDivergence answers from the cache when every row can be, and otherwise
 // starts one process for all branches. The base is pinned to its object id,
-// and a result is cached only for a branch that did not move during the call,
-// so a key never holds an answer computed for other commits.
+// and a result is used and cached only when the tip git counted from is the
+// row's commit, so a key never holds an answer computed for other commits, even
+// for a branch that moved during the call and moved back.
 func (c *Collector) fillDivergence(ctx context.Context, rows []Row) {
 	refs, err := c.Refs.Refs(ctx)
 	if err != nil {
@@ -286,6 +307,7 @@ func (c *Collector) fillDivergence(ctx context.Context, rows []Row) {
 		}
 		if divergence, ok := decodeDivergence(cached[key]); ok {
 			rows[i].Divergence, rows[i].HasDivergence = divergence, true
+			rows[i].Integration = integrationOf(divergence)
 		} else {
 			missing = true
 		}
@@ -298,24 +320,19 @@ func (c *Collector) fillDivergence(ctx context.Context, rows []Row) {
 		markRows(rows, func(row Row) bool { return needsDivergence(row) && !row.HasDivergence }, err)
 		return
 	}
-	after, err := c.Refs.Refs(ctx)
-	if err != nil {
-		after = nil // Nothing can be shown unchanged, so nothing is cached.
-	}
 	fresh := map[string]string{}
 	for i, key := range keys {
 		if key == "" || rows[i].HasDivergence {
 			continue
 		}
 		name := headsPrefix + rows[i].Branch
-		divergence, ok := computed[name]
-		if !ok {
+		branch, ok := computed[name]
+		if !ok || branch.Object != rows[i].Head {
 			continue
 		}
-		rows[i].Divergence, rows[i].HasDivergence = divergence, true
-		if refObject(after, name) == rows[i].Head {
-			fresh[key] = encodeDivergence(divergence)
-		}
+		rows[i].Divergence, rows[i].HasDivergence = branch.Divergence, true
+		rows[i].Integration = integrationOf(branch.Divergence)
+		fresh[key] = encodeDivergence(branch.Divergence)
 	}
 	// The cache only saves work; failing to write it loses nothing.
 	_ = c.State.PutCached(ctx, CacheDivergence, fresh)

@@ -76,6 +76,10 @@ export interface ResolveOperationRequest {
    * "done" or "rerun".
    */
   decision?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface ResolveOperationResponse {
@@ -84,6 +88,10 @@ export interface ResolveOperationResponse {
    * The operation as JSON.
    */
   operationJson?: string;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface HelloRequest {
@@ -141,10 +149,18 @@ export interface ShutdownRequest {
    * "stop" or "restart".
    */
   reason?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface ShutdownResponse {
   version?: herdsman_core_v1_core.Version;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface ListRoutesRequest {
@@ -171,6 +187,10 @@ export interface CreateRouteRequest {
   repo?: string;
   route?: herdsman_core_v1_core.RouteId;
   herdrSocket?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface CreateRouteResponse {
@@ -178,12 +198,20 @@ export interface CreateRouteResponse {
   route?: herdsman_core_v1_core.RouteId;
   inbox?: string;
   epoch?: string;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface AdoptRouteRequest {
   route?: herdsman_core_v1_core.RouteId;
   inbox?: string;
   confirmPairSha256?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface AdoptRouteResponse {
@@ -192,16 +220,28 @@ export interface AdoptRouteResponse {
   epoch?: string;
   lastMessageId?: string;
   legacyProof?: boolean;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface RemoveRouteRequest {
   route?: herdsman_core_v1_core.RouteId;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface RemoveRouteResponse {
   version?: herdsman_core_v1_core.Version;
   removed?: boolean;
   inboxKept?: boolean;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface ResetEventsRequest {
@@ -210,12 +250,20 @@ export interface ResetEventsRequest {
    * Must repeat the route's name.
    */
   confirmRoute?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface ResetEventsResponse {
   version?: herdsman_core_v1_core.Version;
   epoch?: string;
   checkpointSeq?: string;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface StatusRequest {
@@ -355,22 +403,38 @@ export interface PutSetupRequest {
   watchTargetsJson?: string;
   resumeTargetsJson?: string;
   probes?: Probe[];
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface PutSetupResponse {
   version?: herdsman_core_v1_core.Version;
   proofSha256?: string;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface EnrollRequest {
   route?: herdsman_core_v1_core.RouteId;
   name?: string;
   role?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface EnrollResponse {
   version?: herdsman_core_v1_core.Version;
   pendingSha256?: string;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface ApprovePairRequest {
@@ -379,6 +443,10 @@ export interface ApprovePairRequest {
   interaction?: string;
   askedBy?: string;
   credentials?: Record<string, string>;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface ApprovePairResponse {
@@ -386,6 +454,10 @@ export interface ApprovePairResponse {
   approved?: boolean;
   credentials?: ApprovedCredential[];
   revoked?: string[];
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 /**
@@ -400,22 +472,38 @@ export interface RetirePairRequest {
   route?: herdsman_core_v1_core.RouteId;
   name?: string;
   sha256?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface RetirePairResponse {
   version?: herdsman_core_v1_core.Version;
   retired?: string;
   revoked?: boolean;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface RevokeCredentialRequest {
   route?: herdsman_core_v1_core.RouteId;
   name?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface RevokeCredentialResponse {
   version?: herdsman_core_v1_core.Version;
   revoked?: boolean;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface SendRequest {
@@ -428,6 +516,10 @@ export interface SendRequest {
    * Makes a retry of the same send harmless.
    */
   key?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface SendResponse {
@@ -435,6 +527,10 @@ export interface SendResponse {
   id?: herdsman_core_v1_core.MessageId;
   seq?: string;
   duplicate?: boolean;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface ClaimRequest {
@@ -442,6 +538,10 @@ export interface ClaimRequest {
   readKey?: string;
   token?: string;
   extendKey?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface ClaimResponse {
@@ -450,6 +550,10 @@ export interface ClaimResponse {
   manifest?: ManifestEntry[];
   pendingNew?: number;
   quarantine?: number;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 /**
@@ -470,6 +574,10 @@ export interface AckRequest {
   claim?: string;
   id?: herdsman_core_v1_core.MessageId;
   record?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface AckResponse {
@@ -477,37 +585,65 @@ export interface AckResponse {
   id?: herdsman_core_v1_core.MessageId;
   seq?: string;
   already?: boolean;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface ReleaseRequest {
   route?: herdsman_core_v1_core.RouteId;
   claim?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface ReleaseResponse {
   version?: herdsman_core_v1_core.Version;
   released?: boolean;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface HoldRequest {
   route?: herdsman_core_v1_core.RouteId;
   target?: string;
   reason?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface HoldResponse {
   version?: herdsman_core_v1_core.Version;
   holds?: Record<string, HoldOwner>;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 export interface UnholdRequest {
   route?: herdsman_core_v1_core.RouteId;
   target?: string;
+  /**
+   * Check the call and return its plan, changing nothing.
+   */
+  dryRun?: boolean;
 }
 
 export interface UnholdResponse {
   version?: herdsman_core_v1_core.Version;
   holds?: Record<string, HoldOwner>;
+  /**
+   * What the call would do; set only when the request asked for a preview.
+   */
+  plan?: herdsman_core_v1_core.Plan;
 }
 
 /**

@@ -128,7 +128,7 @@ func callRouteService(ctx context.Context, hc *http.Client, url string, req, res
 	if err != nil {
 		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/proto")
+	httpReq.Header.Set("Content-Type", rpc.RequestContentType(req))
 	httpRes, err := hc.Do(httpReq)
 	if err != nil {
 		return err

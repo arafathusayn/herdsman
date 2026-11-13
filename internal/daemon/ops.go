@@ -70,19 +70,21 @@ func (q *SendRequest) validate() *APIError {
 }
 
 // send is one send (4.2 Send) for the authenticated party from.
-func (r *Route) send(from string, q SendRequest) (SendResult, *APIError) {
+// admitSend runs every check of a send that changes nothing. A retry of a
+// committed send returns its earlier result; otherwise the two peers are the
+// sender and the recipient.
+func (r *Route) admitSend(from string, q SendRequest, record bool) (*SendResult, *inbox.Peer, *inbox.Peer, *APIError) {
 	if e := q.validate(); e != nil {
-		return SendResult{}, e
+		return nil, nil, nil, e
 	}
-	bodySum := sha256Hex([]byte(q.Body))
 	if k, ok := r.sendKeys[q.Key]; ok {
-		if k.From == from && k.To == q.To && k.Kind == q.Kind && k.ReplyTo == q.ReplyTo && k.BodySHA256 == bodySum {
-			return SendResult{ID: k.ID, Seq: k.Seq, Duplicate: true}, nil
+		if k.From == from && k.To == q.To && k.Kind == q.Kind && k.ReplyTo == q.ReplyTo && k.BodySHA256 == sha256Hex([]byte(q.Body)) {
+			return &SendResult{ID: k.ID, Seq: k.Seq, Duplicate: true}, nil, nil, nil
 		}
-		return SendResult{}, Errf("key_conflict", "send key reused with other content")
+		return nil, nil, nil, Errf("key_conflict", "send key reused with other content")
 	}
-	if e := r.deliveryAllowed(); e != nil {
-		return SendResult{}, e
+	if e := r.checkDelivery(record); e != nil {
+		return nil, nil, nil, e
 	}
 	peers, _ := r.approvedPeers()
 	var me, to *inbox.Peer
@@ -95,23 +97,35 @@ func (r *Route) send(from string, q SendRequest) (SendResult, *APIError) {
 		}
 	}
 	if me == nil {
-		return SendResult{}, Errf("unauthorized", "%s is not an approved party", from)
+		return nil, nil, nil, Errf("unauthorized", "%s is not an approved party", from)
 	}
 	if to == nil {
-		return SendResult{}, Errf("bad_request", "unknown peer")
+		return nil, nil, nil, Errf("bad_request", "unknown peer")
 	}
 	if q.ReplyTo != "" && !regular(r.path("ids", q.ReplyTo, "envelope")) {
-		return SendResult{}, Errf("bad_request", "unknown reply id")
+		return nil, nil, nil, Errf("bad_request", "unknown reply id")
 	}
 	if r.keysInWindow() >= keyWindowMax {
-		return SendResult{}, Errf("key_window_full", "%d send keys are inside the retry window; retry with the same key shortly", keyWindowMax)
+		return nil, nil, nil, Errf("key_window_full", "%d send keys are inside the retry window; retry with the same key shortly", keyWindowMax)
 	}
 	if e := r.caps(q); e != nil {
-		return SendResult{}, e
+		return nil, nil, nil, e
 	}
 	if r.lastID >= 999999999999 {
-		return SendResult{}, Errf("internal", "message sequence exhausted")
+		return nil, nil, nil, Errf("internal", "message sequence exhausted")
 	}
+	return nil, me, to, nil
+}
+
+func (r *Route) send(from string, q SendRequest) (SendResult, *APIError) {
+	earlier, me, to, e := r.admitSend(from, q, true)
+	if e != nil {
+		return SendResult{}, e
+	}
+	if earlier != nil {
+		return *earlier, nil
+	}
+	bodySum := sha256Hex([]byte(q.Body))
 	if err := r.boxInit(q.To); err != nil {
 		return SendResult{}, Errf("internal", "mailbox: %v", err)
 	}
@@ -316,32 +330,57 @@ func (r *Route) claim(me string, q ClaimRequest) (ClaimResult, *APIError) {
 	if err := r.boxInit(me); err != nil {
 		return ClaimResult{}, Errf("internal", "mailbox: %v", err)
 	}
+	step, token, e := r.admitClaim(me, q)
+	switch {
+	case e != nil:
+		return ClaimResult{}, e
+	case step == claimRetry:
+		return r.manifest(me, token)
+	case step == claimFirst:
+		return r.firstClaim(me, q.ReadKey)
+	}
+	return r.extendClaim(me, q.Token, q.ExtendKey)
+}
+
+// claimStep is what an admitted claim request goes on to do.
+type claimStep int
+
+const (
+	claimFirst claimStep = iota
+	claimExtend
+	claimRetry
+)
+
+// admitClaim runs the checks of a read, after delivery was allowed, and says
+// what the read will do; a retry comes with its claim's token. It changes
+// nothing.
+func (r *Route) admitClaim(me string, q ClaimRequest) (claimStep, string, *APIError) {
 	active := r.activeToken(me)
 	if q.Token == "" {
 		if !keyRe.MatchString(q.ReadKey) || q.ExtendKey != "" {
-			return ClaimResult{}, Errf("bad_request", "a first read carries read_key (32 lower-case hex digits) only")
+			return 0, "", Errf("bad_request", "a first read carries read_key (32 lower-case hex digits) only")
 		}
 		if k, ok := r.readKeys[q.ReadKey]; ok && k.Box == me {
-			return r.manifest(me, k.Token)
+			return claimRetry, k.Token, nil
 		}
 		if active != "" {
-			return ClaimResult{}, Errf("claim_held", "reader claim held; recover with the recorded token, do not start another reader")
+			return 0, "", Errf("claim_held", "reader claim held; recover with the recorded token, do not start another reader")
 		}
-		return r.firstClaim(me, q.ReadKey)
+		return claimFirst, "", nil
 	}
 	if !keyRe.MatchString(q.ExtendKey) || q.ReadKey != "" || !keyRe.MatchString(q.Token) {
-		return ClaimResult{}, Errf("bad_request", "an extension carries token and extend_key (32 lower-case hex digits)")
+		return 0, "", Errf("bad_request", "an extension carries token and extend_key (32 lower-case hex digits)")
 	}
 	if k, ok := r.extendKeys[q.ExtendKey]; ok && k.Box == me && k.Token == q.Token {
-		return r.manifest(me, k.Token)
+		return claimRetry, k.Token, nil
 	}
 	if active == "" || active != q.Token {
-		return ClaimResult{}, Errf("no_claim", "no such active claim")
+		return 0, "", Errf("no_claim", "no such active claim")
 	}
 	if r.claimExtensions(q.Token) >= extendKeyMax {
-		return ClaimResult{}, Errf("key_window_full", "%d extensions of this claim are inside the retry window", extendKeyMax)
+		return 0, "", Errf("key_window_full", "%d extensions of this claim are inside the retry window", extendKeyMax)
 	}
-	return r.extendClaim(me, q.Token, q.ExtendKey)
+	return claimExtend, "", nil
 }
 
 // claimExtensions counts a claim's extend keys inside the window.
@@ -553,49 +592,14 @@ type AckResult struct {
 // ack acknowledges one claimed message after the party's durable intake
 // (4.2 Ack).
 func (r *Route) ack(me, token string, q AckRequest) (AckResult, *APIError) {
-	if !inbox.IDOK(q.ID) {
-		return AckResult{}, Errf("bad_request", "invalid message id")
-	}
-	if q.Record == "" || len(q.Record) > inbox.MaxSize {
-		return AckResult{}, Errf("bad_request", "nonempty processing record of at most %d bytes required", inbox.MaxSize)
-	}
-	if e := r.deliveryAllowed(); e != nil {
+	data, already, e := r.admitAck(me, token, q, true)
+	if e != nil {
 		return AckResult{}, e
 	}
-	box := r.path(me)
-	active := r.activeToken(me)
-	if active == "" || active != token {
-		return AckResult{}, Errf("no_claim", "wrong active reader claim")
+	if already {
+		return AckResult{ID: q.ID, Already: true}, nil
 	}
-	cur := filepath.Join(box, "cur", q.ID+".md")
-	if _, ok := inbox.Envelope(r.inbox, cur); !ok || strings.TrimSpace(readText(r.path("ids", q.ID, "claim"))) != token {
-		return AckResult{}, Errf("no_claim", "no claimed envelope %s", q.ID)
-	}
-	sum, _ := inbox.DigestFile(cur)
-	ackFile := filepath.Join(box, "ack", q.ID+".md.json")
-	if exists(ackFile) {
-		b, err := readSmall(ackFile, inbox.MaxSize)
-		v, _ := inbox.Decode(b)
-		m := inbox.Object(v)
-		if err == nil && m != nil && m["claim"] == token && m["processing_record"] == q.Record && m["envelope_checksum"] == sum {
-			return AckResult{ID: q.ID, Already: true}, nil
-		}
-		return AckResult{}, Errf("terminal_conflict", "an existing ack record differs; held, never overwritten")
-	}
-	terminal := r.path("ids", q.ID, "terminal.json")
-	want := prettyJSON(obj("id", q.ID, "state", "handled", "envelope_checksum", sum))
-	if exists(terminal) {
-		b, _ := readSmall(terminal, inbox.MaxSize)
-		v1, _ := inbox.Decode(b)
-		v2, _ := inbox.Decode(want)
-		if !inbox.Equal(v1, v2) {
-			return AckResult{}, Errf("terminal_conflict", "conflicting or invalid terminal disposition held for inspection; not overwritten")
-		}
-	}
-	data := prettyJSON(obj("id", q.ID, "claim", token, "time", r.now().Unix(), "processing_record", q.Record, "envelope_checksum", sum))
-	if len(data) > inbox.MaxSize {
-		return AckResult{}, Errf("ack_too_large", "processing record too large once encoded (%d bytes over %d); message remains unhandled", len(data), inbox.MaxSize)
-	}
+	cur := filepath.Join(r.path(me), "cur", q.ID+".md")
 	env, _ := inbox.Envelope(r.inbox, cur)
 	sender, _ := inbox.String(env, "from")
 	pl, err := r.writePayload(filepath.Join("ids", q.ID, "ack.json"), data)
@@ -613,6 +617,56 @@ func (r *Route) ack(me, token string, q AckRequest) (AckResult, *APIError) {
 	}
 	r.publish(rec)
 	return AckResult{ID: q.ID, Seq: rec.Seq}, nil
+}
+
+// admitAck runs the checks of an acknowledgement and returns its ack record;
+// already is set when this same acknowledgement is recorded. It changes
+// nothing.
+func (r *Route) admitAck(me, token string, q AckRequest, record bool) (data []byte, already bool, e *APIError) {
+	if !inbox.IDOK(q.ID) {
+		return nil, false, Errf("bad_request", "invalid message id")
+	}
+	if q.Record == "" || len(q.Record) > inbox.MaxSize {
+		return nil, false, Errf("bad_request", "nonempty processing record of at most %d bytes required", inbox.MaxSize)
+	}
+	if e := r.checkDelivery(record); e != nil {
+		return nil, false, e
+	}
+	box := r.path(me)
+	active := r.activeToken(me)
+	if active == "" || active != token {
+		return nil, false, Errf("no_claim", "wrong active reader claim")
+	}
+	cur := filepath.Join(box, "cur", q.ID+".md")
+	if _, ok := inbox.Envelope(r.inbox, cur); !ok || strings.TrimSpace(readText(r.path("ids", q.ID, "claim"))) != token {
+		return nil, false, Errf("no_claim", "no claimed envelope %s", q.ID)
+	}
+	sum, _ := inbox.DigestFile(cur)
+	ackFile := filepath.Join(box, "ack", q.ID+".md.json")
+	if exists(ackFile) {
+		b, err := readSmall(ackFile, inbox.MaxSize)
+		v, _ := inbox.Decode(b)
+		m := inbox.Object(v)
+		if err == nil && m != nil && m["claim"] == token && m["processing_record"] == q.Record && m["envelope_checksum"] == sum {
+			return nil, true, nil
+		}
+		return nil, false, Errf("terminal_conflict", "an existing ack record differs; held, never overwritten")
+	}
+	terminal := r.path("ids", q.ID, "terminal.json")
+	want := prettyJSON(obj("id", q.ID, "state", "handled", "envelope_checksum", sum))
+	if exists(terminal) {
+		b, _ := readSmall(terminal, inbox.MaxSize)
+		v1, _ := inbox.Decode(b)
+		v2, _ := inbox.Decode(want)
+		if !inbox.Equal(v1, v2) {
+			return nil, false, Errf("terminal_conflict", "conflicting or invalid terminal disposition held for inspection; not overwritten")
+		}
+	}
+	data = prettyJSON(obj("id", q.ID, "claim", token, "time", r.now().Unix(), "processing_record", q.Record, "envelope_checksum", sum))
+	if len(data) > inbox.MaxSize {
+		return nil, false, Errf("ack_too_large", "processing record too large once encoded (%d bytes over %d); message remains unhandled", len(data), inbox.MaxSize)
+	}
+	return data, false, nil
 }
 
 // redoAck is an ack's step 4, idempotent: the ack file from the payload's
@@ -649,12 +703,8 @@ func (r *Route) redoAck(rec *Record) error {
 
 // release releases a fully acknowledged claim (4.2 Release).
 func (r *Route) release(me, token string) *APIError {
-	active := r.activeToken(me)
-	if active == "" || active != token {
-		return Errf("no_claim", "no such active claim")
-	}
-	if len(r.unacked(r.path(me))) > 0 {
-		return Errf("unacked_work", "acknowledge all delivered work before releasing claim; read again first")
+	if e := r.admitRelease(me, token); e != nil {
+		return e
 	}
 	rec := &Record{Op: "release", Box: me, Token: token}
 	if err := r.commit(rec); err != nil {
@@ -666,6 +716,18 @@ func (r *Route) release(me, token string) *APIError {
 		return r.unfinish(rec, err)
 	}
 	r.publish(rec)
+	return nil
+}
+
+// admitRelease runs the checks of a release. It changes nothing.
+func (r *Route) admitRelease(me, token string) *APIError {
+	active := r.activeToken(me)
+	if active == "" || active != token {
+		return Errf("no_claim", "no such active claim")
+	}
+	if len(r.unacked(r.path(me))) > 0 {
+		return Errf("unacked_work", "acknowledge all delivered work before releasing claim; read again first")
+	}
 	return nil
 }
 

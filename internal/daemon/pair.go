@@ -52,11 +52,13 @@ func (r *Route) approvedPeers() ([]inbox.Peer, bool) {
 
 // deliveryAllowed is the static part of every party write: an approved
 // registry with no pending change and a current setup proof (5.2).
-func (r *Route) deliveryAllowed() *APIError {
+func (r *Route) deliveryAllowed() *APIError { return r.checkDelivery(true) }
+
+func (r *Route) checkDelivery(record bool) *APIError {
 	if _, ok := r.approvedPeers(); !ok {
 		return Errf("registry_pending", "a pair change waits for the human's approval; delivery is held")
 	}
-	if !r.proofValid() {
+	if !r.checkProof(record) {
 		return Errf("proof_stale", "setup proof stale or missing; nothing moves until the human runs herdsman daemon setup %s", r.name)
 	}
 	return nil
@@ -96,50 +98,14 @@ func rawRegistry(b []byte) ordered {
 // enroll records a party's pending enrollment (7.4) with its live
 // identity, as message-register.sh propose did.
 func (r *Route) enroll(name, role string, id inbox.Identity) (string, *APIError) {
-	if !inbox.NameOK(name) {
-		return "", Errf("bad_request", "invalid name")
+	a, e := r.admitEnroll(name, role, id)
+	if e != nil {
+		return "", e
 	}
-	if role != "adjutant" && role != "orchestrator" {
-		return "", Errf("bad_request", "invalid role")
+	if a.same {
+		return sha256Hex(a.pb), nil
 	}
-	pb, ok := r.registryBytes("peers")
-	if !ok {
-		return "", Errf("internal", "invalid pending registry; inspect without committing it")
-	}
-	if exists(r.path("enrolled", name+".retired")) {
-		return "", Errf("name_retired", "retired name; use a fresh generation")
-	}
-	candidate := obj("role", role, "identity", identityObj(id))
-	cb, _ := encode(candidate)
-	if enrolled := r.path("enrolled", name+".json"); exists(enrolled) {
-		b, _ := readSmall(enrolled, 4096)
-		v1, _ := inbox.Decode(b)
-		v2, _ := inbox.Decode(cb)
-		if !inbox.Equal(v1, v2) {
-			return "", Errf("name_retired", "name is immutable; use a fresh generation name")
-		}
-	}
-	cur := rawRegistry(pb)
-	same := false
-	for _, e := range cur {
-		raw := e.V.(json.RawMessage)
-		if e.K == name {
-			v1, _ := inbox.Decode(raw)
-			v2, _ := inbox.Decode(cb)
-			same = inbox.Equal(v1, v2)
-			continue
-		}
-		v, _ := inbox.Decode(raw)
-		p := inbox.Object(v)
-		pid := inbox.Object(p["identity"])
-		sess, _ := inbox.Decode(mustEncode(identityObj(id)))
-		if p["role"] == role || pid["pane"] == id.Pane || inbox.Equal(pid["session"], inbox.Object(sess)["session"]) {
-			return "", Errf("role_taken", "role or session already enrolled")
-		}
-	}
-	if same {
-		return sha256Hex(pb), nil
-	}
+	cur, candidate := a.cur, a.candidate
 	next := ordered{}
 	replaced := false
 	for _, e := range cur {
@@ -169,6 +135,60 @@ func (r *Route) enroll(name, role string, id inbox.Identity) (string, *APIError)
 	}
 	r.publish(rec)
 	return sum, nil
+}
+
+// enrollAdmission is what enroll needs once its checks have passed.
+type enrollAdmission struct {
+	pb        []byte
+	cur       ordered
+	candidate ordered
+	same      bool
+}
+
+// admitEnroll runs the checks of an enrollment. It changes nothing.
+func (r *Route) admitEnroll(name, role string, id inbox.Identity) (enrollAdmission, *APIError) {
+	if !inbox.NameOK(name) {
+		return enrollAdmission{}, Errf("bad_request", "invalid name")
+	}
+	if role != "adjutant" && role != "orchestrator" {
+		return enrollAdmission{}, Errf("bad_request", "invalid role")
+	}
+	pb, ok := r.registryBytes("peers")
+	if !ok {
+		return enrollAdmission{}, Errf("internal", "invalid pending registry; inspect without committing it")
+	}
+	if exists(r.path("enrolled", name+".retired")) {
+		return enrollAdmission{}, Errf("name_retired", "retired name; use a fresh generation")
+	}
+	candidate := obj("role", role, "identity", identityObj(id))
+	cb, _ := encode(candidate)
+	if enrolled := r.path("enrolled", name+".json"); exists(enrolled) {
+		b, _ := readSmall(enrolled, 4096)
+		v1, _ := inbox.Decode(b)
+		v2, _ := inbox.Decode(cb)
+		if !inbox.Equal(v1, v2) {
+			return enrollAdmission{}, Errf("name_retired", "name is immutable; use a fresh generation name")
+		}
+	}
+	cur := rawRegistry(pb)
+	same := false
+	for _, e := range cur {
+		raw := e.V.(json.RawMessage)
+		if e.K == name {
+			v1, _ := inbox.Decode(raw)
+			v2, _ := inbox.Decode(cb)
+			same = inbox.Equal(v1, v2)
+			continue
+		}
+		v, _ := inbox.Decode(raw)
+		p := inbox.Object(v)
+		pid := inbox.Object(p["identity"])
+		sess, _ := inbox.Decode(mustEncode(identityObj(id)))
+		if p["role"] == role || pid["pane"] == id.Pane || inbox.Equal(pid["session"], inbox.Object(sess)["session"]) {
+			return enrollAdmission{}, Errf("role_taken", "role or session already enrolled")
+		}
+	}
+	return enrollAdmission{pb: pb, cur: cur, candidate: candidate, same: same}, nil
 }
 
 func mustEncode(v any) []byte {
@@ -254,72 +274,11 @@ func (r *Route) approve(q ApproveRequest) (ApproveResult, *APIError) {
 // approveAsked is approve; with asker, the asker rule (PR 28) applies to
 // an approval that is not the retry of the committed one.
 func (r *Route) approveAsked(q ApproveRequest, asker bool) (ApproveResult, *APIError) {
-	pb, ok := r.registryBytes("peers")
-	if !ok {
-		return ApproveResult{}, Errf("internal", "invalid pending registry; inspect without committing it")
+	a, e := r.admitApprove(q, asker)
+	if e != nil || a.done {
+		return a.res, e
 	}
-	if q.SHA256 != sha256Hex(pb) {
-		return ApproveResult{}, Errf("checksum_mismatch", "approve requires the inspected pending checksum (SHA-256)")
-	}
-	peers, _ := inbox.ValidRegistry(pb)
-	roles := map[string]bool{}
-	for _, p := range peers {
-		roles[p.Role] = true
-	}
-	if len(peers) != 2 || !roles["adjutant"] || !roles["orchestrator"] {
-		return ApproveResult{}, Errf("incomplete_pair", "approve exactly one complete pair: one adjutant and one orchestrator")
-	}
-	if len(q.Interaction) > 200 || !utf8.ValidString(q.Interaction) || strings.ContainsAny(q.Interaction, "\n\r") {
-		return ApproveResult{}, Errf("bad_request", "invalid interaction reference")
-	}
-	names := map[string]bool{}
-	for _, p := range peers {
-		names[p.Name] = true
-	}
-	for n := range q.Credentials {
-		if !names[n] {
-			return ApproveResult{}, Errf("bad_request", "credential option for %q, who is not in the pending pair", n)
-		}
-	}
-	creds := map[string]credential{}
-	secrets := map[string]string{}
-	res := ApproveResult{Approved: true, Credentials: []ApprovedCredential{}, Revoked: []string{}}
-	for _, p := range peers {
-		opt := q.Credentials[p.Name]
-		if opt == "" {
-			opt = "file"
-		}
-		if !slices.Contains(credentialOptions(), opt) {
-			if opt == "keychain" {
-				return ApproveResult{}, Errf("option_unavailable", "the keychain option exists only on macOS")
-			}
-			return ApproveResult{}, Errf("bad_request", "unknown credential option %q", opt)
-		}
-		c := credential{Option: opt}
-		if opt != "identity" {
-			secret := randomHex(32)
-			secrets[p.Name] = secret
-			c.SHA256 = sha256Hex([]byte(secret))
-		}
-		creds[p.Name] = c
-		res.Credentials = append(res.Credentials, ApprovedCredential{Name: p.Name, Option: opt})
-	}
-	for n := range r.creds {
-		if _, kept := creds[n]; !kept {
-			res.Revoked = append(res.Revoked, n)
-		}
-	}
-	sort.Strings(res.Revoked)
-	// An approval is consumed once: a retry of the approval that made the
-	// current registry returns its result and issues nothing (7.5).
-	if prior, done, e := r.priorApproval(q, pb, res); done {
-		return prior, e
-	}
-	if asker {
-		if e := r.askedByAdjutant(q); e != nil {
-			return ApproveResult{}, e
-		}
-	}
+	pb, creds, secrets, res := a.pb, a.creds, a.secrets, a.res
 	// Step 2: the new generation's secrets, staged under names no client
 	// reads; the active secrets are untouched until the commit (7.5).
 	gen := randomHex(8)
@@ -348,6 +307,88 @@ func (r *Route) approveAsked(q ApproveRequest, asker bool) (ApproveResult, *APIE
 	r.publish(rec)
 	r.healthChanged()
 	return res, nil
+}
+
+// approveAdmission is what an approval needs once its checks have passed.
+// done is set when the approval is the retry of a committed one: res is then
+// the answer and nothing is issued.
+type approveAdmission struct {
+	pb      []byte
+	creds   map[string]credential
+	secrets map[string]string
+	res     ApproveResult
+	done    bool
+}
+
+// admitApprove runs the checks of an approval. It changes nothing.
+func (r *Route) admitApprove(q ApproveRequest, asker bool) (approveAdmission, *APIError) {
+	pb, ok := r.registryBytes("peers")
+	if !ok {
+		return approveAdmission{}, Errf("internal", "invalid pending registry; inspect without committing it")
+	}
+	if q.SHA256 != sha256Hex(pb) {
+		return approveAdmission{}, Errf("checksum_mismatch", "approve requires the inspected pending checksum (SHA-256)")
+	}
+	peers, _ := inbox.ValidRegistry(pb)
+	roles := map[string]bool{}
+	for _, p := range peers {
+		roles[p.Role] = true
+	}
+	if len(peers) != 2 || !roles["adjutant"] || !roles["orchestrator"] {
+		return approveAdmission{}, Errf("incomplete_pair", "approve exactly one complete pair: one adjutant and one orchestrator")
+	}
+	if len(q.Interaction) > 200 || !utf8.ValidString(q.Interaction) || strings.ContainsAny(q.Interaction, "\n\r") {
+		return approveAdmission{}, Errf("bad_request", "invalid interaction reference")
+	}
+	names := map[string]bool{}
+	for _, p := range peers {
+		names[p.Name] = true
+	}
+	for n := range q.Credentials {
+		if !names[n] {
+			return approveAdmission{}, Errf("bad_request", "credential option for %q, who is not in the pending pair", n)
+		}
+	}
+	creds := map[string]credential{}
+	secrets := map[string]string{}
+	res := ApproveResult{Approved: true, Credentials: []ApprovedCredential{}, Revoked: []string{}}
+	for _, p := range peers {
+		opt := q.Credentials[p.Name]
+		if opt == "" {
+			opt = "file"
+		}
+		if !slices.Contains(credentialOptions(), opt) {
+			if opt == "keychain" {
+				return approveAdmission{}, Errf("option_unavailable", "the keychain option exists only on macOS")
+			}
+			return approveAdmission{}, Errf("bad_request", "unknown credential option %q", opt)
+		}
+		c := credential{Option: opt}
+		if opt != "identity" {
+			secret := randomHex(32)
+			secrets[p.Name] = secret
+			c.SHA256 = sha256Hex([]byte(secret))
+		}
+		creds[p.Name] = c
+		res.Credentials = append(res.Credentials, ApprovedCredential{Name: p.Name, Option: opt})
+	}
+	for n := range r.creds {
+		if _, kept := creds[n]; !kept {
+			res.Revoked = append(res.Revoked, n)
+		}
+	}
+	sort.Strings(res.Revoked)
+	// An approval is consumed once: a retry of the approval that made the
+	// current registry returns its result and issues nothing (7.5).
+	if prior, done, e := r.priorApproval(q, pb, res); done {
+		return approveAdmission{res: prior, done: true}, e
+	}
+	if asker {
+		if e := r.askedByAdjutant(q); e != nil {
+			return approveAdmission{}, e
+		}
+	}
+	return approveAdmission{pb: pb, creds: creds, secrets: secrets, res: res}, nil
 }
 
 // approvalRecord is state/approval.json: the approval that made the
@@ -400,15 +441,9 @@ func (r *Route) priorApproval(q ApproveRequest, pb []byte, want ApproveResult) (
 // retire retires an approved name (7.7): it leaves the pending registry,
 // never returns, and its credential is revoked.
 func (r *Route) retire(name, sum string) (string, *APIError) {
-	pb, ok := r.registryBytes("peers")
-	if !ok {
-		return "", Errf("internal", "invalid pending registry; inspect without committing it")
-	}
-	if sum != sha256Hex(pb) {
-		return "", Errf("checksum_mismatch", "retire requires the inspected pending checksum (SHA-256)")
-	}
-	if _, ok := r.root().Peer(name); !ok {
-		return "", Errf("unknown_name", "unknown retirement name")
+	pb, e := r.admitRetire(name, sum)
+	if e != nil {
+		return "", e
 	}
 	var next ordered
 	for _, e := range rawRegistry(pb) {
@@ -436,10 +471,34 @@ func (r *Route) retire(name, sum string) (string, *APIError) {
 	return sha256Hex(nb), nil
 }
 
-// revoke revokes one party's credential.
-func (r *Route) revoke(name string) *APIError {
+// admitRetire runs the checks of a retirement and returns the pending
+// registry. It changes nothing.
+func (r *Route) admitRetire(name, sum string) ([]byte, *APIError) {
+	pb, ok := r.registryBytes("peers")
+	if !ok {
+		return nil, Errf("internal", "invalid pending registry; inspect without committing it")
+	}
+	if sum != sha256Hex(pb) {
+		return nil, Errf("checksum_mismatch", "retire requires the inspected pending checksum (SHA-256)")
+	}
+	if _, ok := r.root().Peer(name); !ok {
+		return nil, Errf("unknown_name", "unknown retirement name")
+	}
+	return pb, nil
+}
+
+// admitRevoke runs the check of a revocation. It changes nothing.
+func (r *Route) admitRevoke(name string) *APIError {
 	if _, ok := r.creds[name]; !ok {
 		return Errf("unknown_name", "%s has no credential", name)
+	}
+	return nil
+}
+
+// revoke revokes one party's credential.
+func (r *Route) revoke(name string) *APIError {
+	if e := r.admitRevoke(name); e != nil {
+		return e
 	}
 	rec := &Record{Op: "pair", State: "revoked", Name: name}
 	if err := r.commit(rec); err != nil {
@@ -568,6 +627,39 @@ type HoldResult struct {
 // holdOwners reads state/hold-<name> strictly in the owner format
 // {"holds":{<owner>:{"reason":string,"time":integer}}}; anything else is
 // left as it is for human inspection.
+// admitHold runs the checks of a hold (reason set) or an unhold (reason nil)
+// and returns the target's owners and the caller's place among them, -1 when
+// absent. It changes nothing.
+func (r *Route) admitHold(me, name string, reason *string) (ordered, int, *APIError) {
+	if !inbox.NameOK(name) {
+		return nil, 0, Errf("bad_request", "invalid hold target")
+	}
+	if reason != nil && utf8.RuneCountInString(*reason) > 300 {
+		return nil, 0, Errf("bad_request", "hold reason longer than 300 characters")
+	}
+	if _, ok := r.root().Peer(name); !ok {
+		b, sok := inbox.ReadStrict(r.inbox, r.path("resume-targets.json"))
+		v, _ := inbox.Decode(b)
+		if m := inbox.Object(v); !sok || m == nil || m[name] == nil {
+			return nil, 0, Errf("unknown_target", "unknown hold target: %s", name)
+		}
+	}
+	owners, ok := r.holdOwners(name)
+	if !ok {
+		return nil, 0, Errf("internal", "hold record is not in the owner format; human inspection required")
+	}
+	idx := -1
+	for i, o := range owners {
+		if o.K == me {
+			idx = i
+		}
+	}
+	if reason == nil && idx < 0 {
+		return nil, 0, Errf("no_hold", "no hold by %s for %s; another owner's hold stays", me, name)
+	}
+	return owners, idx, nil
+}
+
 func (r *Route) holdOwners(name string) (ordered, bool) {
 	return readHoldOwners(r.inbox, name)
 }
@@ -616,35 +708,13 @@ func holdOwner(raw json.RawMessage) (HoldOwner, bool) {
 // hold sets or clears (reason nil) me's hold of a target, under the
 // shared input lock (3.7), in the file-mode owner format.
 func (r *Route) hold(me, name string, reason *string) (HoldResult, *APIError) {
-	if !inbox.NameOK(name) {
-		return HoldResult{}, Errf("bad_request", "invalid hold target")
-	}
-	if reason != nil && utf8.RuneCountInString(*reason) > 300 {
-		return HoldResult{}, Errf("bad_request", "hold reason longer than 300 characters")
-	}
-	if _, ok := r.root().Peer(name); !ok {
-		b, sok := inbox.ReadStrict(r.inbox, r.path("resume-targets.json"))
-		v, _ := inbox.Decode(b)
-		if m := inbox.Object(v); !sok || m == nil || m[name] == nil {
-			return HoldResult{}, Errf("unknown_target", "unknown hold target: %s", name)
-		}
-	}
-	owners, ok := r.holdOwners(name)
-	if !ok {
-		return HoldResult{}, Errf("internal", "hold record is not in the owner format; human inspection required")
-	}
-	idx := -1
-	for i, o := range owners {
-		if o.K == me {
-			idx = i
-		}
+	owners, idx, e := r.admitHold(me, name, reason)
+	if e != nil {
+		return HoldResult{}, e
 	}
 	op := "hold"
 	if reason == nil {
 		op = "unhold"
-		if idx < 0 {
-			return HoldResult{}, Errf("no_hold", "no hold by %s for %s; another owner's hold stays", me, name)
-		}
 		owners = append(owners[:idx:idx], owners[idx+1:]...)
 	} else {
 		entry := obj("reason", *reason, "time", r.now().Unix())
@@ -757,8 +827,12 @@ func dropInputLock(dir, token string) {
 // under it before the answer, so a later check cannot regain RELAY when
 // the agent leaves (8; the exposure rule of e93bcc1).
 func (r *Route) authority(ctx context.Context, c *herdr.Client) (string, []string) {
+	return r.checkAuthority(ctx, c, true)
+}
+
+func (r *Route) checkAuthority(ctx context.Context, c *herdr.Client, record bool) (string, []string) {
 	var reasons []string
-	if !r.proofValid() {
+	if !r.checkProof(record) {
 		reasons = append(reasons, "setup-proof-stale")
 	}
 	if _, ok := r.approvedPeers(); !ok {
@@ -775,7 +849,7 @@ func (r *Route) authority(ctx context.Context, c *herdr.Client) (string, []strin
 		cancel()
 		if !ok {
 			reasons = append(reasons, "boundary-"+fault)
-			if fault == inbox.FaultInventory || fault == inbox.FaultPending {
+			if record && (fault == inbox.FaultInventory || fault == inbox.FaultPending) {
 				if err := r.recordExposure(fault, unknown); err != nil {
 					r.d.logf("route %s: exposure record: %v", r.name, err)
 					reasons = append(reasons, "exposure-unrecorded")

@@ -181,7 +181,7 @@
   },
   {
     "name": "daemon_message_ack",
-    "description": "Calls herdsman.daemon.v1.MessageService/Ack. Changes state.",
+    "description": "Calls herdsman.daemon.v1.MessageService/Ack. Changes state; with dry_run it returns the plan and acts on nothing.",
     "inputSchema": {
       "$defs": {
         "herdsman.core.v1.MessageId": {
@@ -208,6 +208,9 @@
         "claim": {
           "type": "string"
         },
+        "dry_run": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "#/$defs/herdsman.core.v1.MessageId"
         },
@@ -228,7 +231,7 @@
   },
   {
     "name": "daemon_message_adopt_route",
-    "description": "Calls herdsman.daemon.v1.MessageService/AdoptRoute. Changes state.",
+    "description": "Calls herdsman.daemon.v1.MessageService/AdoptRoute. Changes state; with dry_run it returns the plan and acts on nothing.",
     "inputSchema": {
       "$defs": {
         "herdsman.core.v1.RouteId": {
@@ -245,6 +248,9 @@
       "properties": {
         "confirm_pair_sha256": {
           "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
         },
         "inbox": {
           "type": "string"
@@ -292,7 +298,7 @@
   },
   {
     "name": "daemon_message_claim",
-    "description": "Calls herdsman.daemon.v1.MessageService/Claim. Changes state.",
+    "description": "Calls herdsman.daemon.v1.MessageService/Claim. Changes state; with dry_run it returns the plan and acts on nothing.",
     "inputSchema": {
       "$defs": {
         "herdsman.core.v1.RouteId": {
@@ -307,6 +313,9 @@
       },
       "additionalProperties": false,
       "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
         "extend_key": {
           "type": "string"
         },
@@ -330,7 +339,7 @@
   },
   {
     "name": "daemon_message_create_route",
-    "description": "Calls herdsman.daemon.v1.MessageService/CreateRoute. Changes state.",
+    "description": "Calls herdsman.daemon.v1.MessageService/CreateRoute. Changes state; with dry_run it returns the plan and acts on nothing.",
     "inputSchema": {
       "$defs": {
         "herdsman.core.v1.RouteId": {
@@ -345,6 +354,9 @@
       },
       "additionalProperties": false,
       "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
         "herdr_socket": {
           "type": "string"
         },
@@ -454,7 +466,7 @@
   },
   {
     "name": "daemon_message_hold",
-    "description": "Calls herdsman.daemon.v1.MessageService/Hold. Changes state.",
+    "description": "Calls herdsman.daemon.v1.MessageService/Hold. Changes state; with dry_run it returns the plan and acts on nothing.",
     "inputSchema": {
       "$defs": {
         "herdsman.core.v1.RouteId": {
@@ -469,6 +481,9 @@
       },
       "additionalProperties": false,
       "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
         "reason": {
           "type": "string"
         },
@@ -517,7 +532,7 @@
   },
   {
     "name": "daemon_message_put_setup",
-    "description": "Calls herdsman.daemon.v1.MessageService/PutSetup. Changes state.",
+    "description": "Calls herdsman.daemon.v1.MessageService/PutSetup. Changes state; with dry_run it returns the plan and acts on nothing.",
     "inputSchema": {
       "$defs": {
         "herdsman.core.v1.RouteId": {
@@ -556,6 +571,9 @@
         "boundary_json": {
           "type": "string"
         },
+        "dry_run": {
+          "type": "boolean"
+        },
         "policy_verified": {
           "type": "boolean"
         },
@@ -591,7 +609,7 @@
   },
   {
     "name": "daemon_message_release",
-    "description": "Calls herdsman.daemon.v1.MessageService/Release. Changes state.",
+    "description": "Calls herdsman.daemon.v1.MessageService/Release. Changes state; with dry_run it returns the plan and acts on nothing.",
     "inputSchema": {
       "$defs": {
         "herdsman.core.v1.RouteId": {
@@ -609,6 +627,9 @@
         "claim": {
           "type": "string"
         },
+        "dry_run": {
+          "type": "boolean"
+        },
         "route": {
           "$ref": "#/$defs/herdsman.core.v1.RouteId"
         }
@@ -623,7 +644,7 @@
   },
   {
     "name": "daemon_message_remove_route",
-    "description": "Calls herdsman.daemon.v1.MessageService/RemoveRoute. Changes state.",
+    "description": "Calls herdsman.daemon.v1.MessageService/RemoveRoute. Changes state; with dry_run it returns the plan and acts on nothing.",
     "inputSchema": {
       "$defs": {
         "herdsman.core.v1.RouteId": {
@@ -638,6 +659,9 @@
       },
       "additionalProperties": false,
       "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
         "route": {
           "$ref": "#/$defs/herdsman.core.v1.RouteId"
         }
@@ -652,12 +676,15 @@
   },
   {
     "name": "daemon_message_resolve_operation",
-    "description": "Calls herdsman.daemon.v1.MessageService/ResolveOperation. Changes state.",
+    "description": "Calls herdsman.daemon.v1.MessageService/ResolveOperation. Changes state; with dry_run it returns the plan and acts on nothing.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "decision": {
           "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
         },
         "id": {
           "type": "string"
@@ -710,7 +737,7 @@
   },
   {
     "name": "daemon_message_send",
-    "description": "Calls herdsman.daemon.v1.MessageService/Send. Changes state.",
+    "description": "Calls herdsman.daemon.v1.MessageService/Send. Changes state; with dry_run it returns the plan and acts on nothing.",
     "inputSchema": {
       "$defs": {
         "herdsman.core.v1.RouteId": {
@@ -727,6 +754,9 @@
       "properties": {
         "body": {
           "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
         },
         "key": {
           "type": "string"
@@ -783,7 +813,7 @@
   },
   {
     "name": "daemon_message_unhold",
-    "description": "Calls herdsman.daemon.v1.MessageService/Unhold. Changes state.",
+    "description": "Calls herdsman.daemon.v1.MessageService/Unhold. Changes state; with dry_run it returns the plan and acts on nothing.",
     "inputSchema": {
       "$defs": {
         "herdsman.core.v1.RouteId": {
@@ -798,6 +828,9 @@
       },
       "additionalProperties": false,
       "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
         "route": {
           "$ref": "#/$defs/herdsman.core.v1.RouteId"
         },

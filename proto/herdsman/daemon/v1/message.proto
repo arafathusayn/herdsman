@@ -127,12 +127,16 @@ message ResolveOperationRequest {
   int32 step = 2;
   // "done" or "rerun".
   string decision = 3;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 4;
 }
 
 message ResolveOperationResponse {
   herdsman.core.v1.Version version = 1;
   // The operation as JSON.
   string operation_json = 2;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 3;
 }
 
 message HelloRequest {}
@@ -178,10 +182,14 @@ message HerdrHealth {
 message ShutdownRequest {
   // "stop" or "restart".
   string reason = 1;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 2;
 }
 
 message ShutdownResponse {
   herdsman.core.v1.Version version = 1;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 2;
 }
 
 message ListRoutesRequest {}
@@ -205,6 +213,8 @@ message CreateRouteRequest {
   string repo = 1;
   herdsman.core.v1.RouteId route = 2;
   string herdr_socket = 3;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 4;
 }
 
 message CreateRouteResponse {
@@ -212,12 +222,16 @@ message CreateRouteResponse {
   herdsman.core.v1.RouteId route = 2;
   string inbox = 3;
   string epoch = 4;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 5;
 }
 
 message AdoptRouteRequest {
   herdsman.core.v1.RouteId route = 1;
   string inbox = 2;
   string confirm_pair_sha256 = 3;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 4;
 }
 
 message AdoptRouteResponse {
@@ -226,28 +240,38 @@ message AdoptRouteResponse {
   string epoch = 3;
   string last_message_id = 4;
   bool legacy_proof = 5;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 6;
 }
 
 message RemoveRouteRequest {
   herdsman.core.v1.RouteId route = 1;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 2;
 }
 
 message RemoveRouteResponse {
   herdsman.core.v1.Version version = 1;
   bool removed = 2;
   bool inbox_kept = 3;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 4;
 }
 
 message ResetEventsRequest {
   herdsman.core.v1.RouteId route = 1;
   // Must repeat the route's name.
   string confirm_route = 2;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 3;
 }
 
 message ResetEventsResponse {
   herdsman.core.v1.Version version = 1;
   string epoch = 2;
   int64 checkpoint_seq = 3;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 4;
 }
 
 message StatusRequest {
@@ -355,22 +379,30 @@ message PutSetupRequest {
   string watch_targets_json = 6;
   string resume_targets_json = 7;
   repeated Probe probes = 8;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 9;
 }
 
 message PutSetupResponse {
   herdsman.core.v1.Version version = 1;
   string proof_sha256 = 2;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 3;
 }
 
 message EnrollRequest {
   herdsman.core.v1.RouteId route = 1;
   string name = 2;
   string role = 3;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 4;
 }
 
 message EnrollResponse {
   herdsman.core.v1.Version version = 1;
   string pending_sha256 = 2;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 3;
 }
 
 message ApprovePairRequest {
@@ -379,6 +411,8 @@ message ApprovePairRequest {
   string interaction = 3;
   string asked_by = 4;
   map<string, string> credentials = 5;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 6;
 }
 
 message ApprovePairResponse {
@@ -386,6 +420,8 @@ message ApprovePairResponse {
   bool approved = 2;
   repeated ApprovedCredential credentials = 3;
   repeated string revoked = 4;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 5;
 }
 
 // ApprovedCredential is one party's credential option.
@@ -398,22 +434,30 @@ message RetirePairRequest {
   herdsman.core.v1.RouteId route = 1;
   string name = 2;
   string sha256 = 3;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 4;
 }
 
 message RetirePairResponse {
   herdsman.core.v1.Version version = 1;
   string retired = 2;
   bool revoked = 3;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 4;
 }
 
 message RevokeCredentialRequest {
   herdsman.core.v1.RouteId route = 1;
   string name = 2;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 3;
 }
 
 message RevokeCredentialResponse {
   herdsman.core.v1.Version version = 1;
   bool revoked = 2;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 3;
 }
 
 message SendRequest {
@@ -424,6 +468,8 @@ message SendRequest {
   string reply_to = 5;
   // Makes a retry of the same send harmless.
   string key = 6;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 7;
 }
 
 message SendResponse {
@@ -431,6 +477,8 @@ message SendResponse {
   herdsman.core.v1.MessageId id = 2;
   int64 seq = 3;
   bool duplicate = 4;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 5;
 }
 
 message ClaimRequest {
@@ -438,6 +486,8 @@ message ClaimRequest {
   string read_key = 2;
   string token = 3;
   string extend_key = 4;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 5;
 }
 
 message ClaimResponse {
@@ -446,6 +496,8 @@ message ClaimResponse {
   repeated ManifestEntry manifest = 3;
   int32 pending_new = 4;
   int32 quarantine = 5;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 6;
 }
 
 // ManifestEntry is one claimed message's envelope and path, never its body.
@@ -464,6 +516,8 @@ message AckRequest {
   string claim = 2;
   herdsman.core.v1.MessageId id = 3;
   string record = 4;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 5;
 }
 
 message AckResponse {
@@ -471,37 +525,51 @@ message AckResponse {
   herdsman.core.v1.MessageId id = 2;
   int64 seq = 3;
   bool already = 4;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 5;
 }
 
 message ReleaseRequest {
   herdsman.core.v1.RouteId route = 1;
   string claim = 2;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 3;
 }
 
 message ReleaseResponse {
   herdsman.core.v1.Version version = 1;
   bool released = 2;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 3;
 }
 
 message HoldRequest {
   herdsman.core.v1.RouteId route = 1;
   string target = 2;
   string reason = 3;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 4;
 }
 
 message HoldResponse {
   herdsman.core.v1.Version version = 1;
   map<string, HoldOwner> holds = 2;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 3;
 }
 
 message UnholdRequest {
   herdsman.core.v1.RouteId route = 1;
   string target = 2;
+  // Check the call and return its plan, changing nothing.
+  bool dry_run = 3;
 }
 
 message UnholdResponse {
   herdsman.core.v1.Version version = 1;
   map<string, HoldOwner> holds = 2;
+  // What the call would do; set only when the request asked for a preview.
+  herdsman.core.v1.Plan plan = 3;
 }
 
 // HoldOwner is one owner's hold on a target.

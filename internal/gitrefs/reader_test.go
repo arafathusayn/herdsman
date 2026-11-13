@@ -538,10 +538,10 @@ func TestForkOutputParsers(t *testing.T) {
 	if _, err := parseWorktreeList("HEAD " + oid + "\x00\x00"); err == nil {
 		t.Fatal("worktree list: expected an error for a record with no path")
 	}
-	if got, err := parseAheadBehind("refs/heads/a\x001 2\n"); err != nil || got["refs/heads/a"] != (Divergence{1, 2}) {
+	if got, err := parseAheadBehind("refs/heads/a\x00abc\x001 2\n"); err != nil || got["refs/heads/a"] != (BranchDivergence{"abc", Divergence{1, 2}}) {
 		t.Fatalf("ahead-behind: %+v, %v", got, err)
 	}
-	for _, input := range []string{"no separator\n", "a\x00x 2\n", "a\x001 x\n", "a\x001\n"} {
+	for _, input := range []string{"no separator\n", "a\x001 2\n", "a\x00o\x00x 2\n", "a\x00o\x001 x\n", "a\x00o\x001\n"} {
 		if _, err := parseAheadBehind(input); err == nil {
 			t.Errorf("%q: expected an error", input)
 		}
@@ -606,7 +606,8 @@ func TestAheadBehindForksOncePerCall(t *testing.T) {
 				out := strings.Fields(runGit(t, dir, "rev-list", "--left-right", "--count", branch+"...main"))
 				ahead, _ := strconv.Atoi(out[0])
 				behind, _ := strconv.Atoi(out[1])
-				if divergence != (Divergence{ahead, behind}) {
+				tip := strings.TrimSpace(runGit(t, dir, "rev-parse", branch))
+				if divergence != (BranchDivergence{tip, Divergence{ahead, behind}}) {
 					t.Errorf("%s: %+v, want %d %d", branch, divergence, ahead, behind)
 				}
 			}

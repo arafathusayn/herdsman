@@ -84,6 +84,7 @@ func NewMux(procedures ...Procedure) http.Handler {
 
 // codec is one of the two body encodings.
 type codec struct {
+	preview     bool
 	contentType string
 	marshal     func(proto.Message) ([]byte, error)
 	unmarshal   func([]byte, proto.Message) error
@@ -109,6 +110,14 @@ func codecFor(header string) (codec, bool) {
 		return codec{}, false
 	}
 	switch mediaType {
+	case ContentTypePreviewJSON:
+		c := jsonCodec
+		c.preview = true
+		return c, true
+	case ContentTypePreviewProto:
+		c := protoCodec
+		c.preview = true
+		return c, true
 	case ContentTypeJSON:
 		return jsonCodec, true
 	case ContentTypeProto:
@@ -193,6 +202,10 @@ func serve(w http.ResponseWriter, r *http.Request, req proto.Message, call func(
 	}
 	if err := encoding.unmarshal(body, req); err != nil {
 		fail(w, Errorf(InvalidArgument, "cannot decode the request body"))
+		return
+	}
+	if encoding.preview && !isPreview(req) {
+		fail(w, Errorf(Unimplemented, "this method cannot preview this request; nothing was done"))
 		return
 	}
 	// A deadline of zero, or one spent reading the body, never reaches the service.

@@ -344,6 +344,7 @@ func (s *WorktreeService) open(ctx context.Context, dir string) (*repository, er
 	if err != nil {
 		return nil, err
 	}
+	reader.SetRunner(git)
 	repo := &repository{git: git, state: state, reader: reader, common: common, dir: dir, route: s.getenv("HERDSMAN_ROUTE"), environ: s.caller, traceFolder: s.getenv(routeFolderEnv)}
 	collector := wtree.Collector{Refs: reader, State: state, Git: git}
 	if repo.rows, err = collector.Skeleton(ctx); err != nil {

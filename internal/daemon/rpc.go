@@ -103,6 +103,9 @@ func (s *messageService) Health(ctx context.Context, _ *daemonv1.HealthRequest) 
 }
 
 func (s *messageService) Shutdown(ctx context.Context, req *daemonv1.ShutdownRequest) (*daemonv1.ShutdownResponse, error) {
+	if req.GetDryRun() {
+		return s.previewShutdown(ctx, req)
+	}
 	if e := s.d.shutdown(req.GetReason()); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
@@ -122,6 +125,9 @@ func (s *messageService) ListRoutes(ctx context.Context, _ *daemonv1.ListRoutesR
 }
 
 func (s *messageService) CreateRoute(ctx context.Context, req *daemonv1.CreateRouteRequest) (*daemonv1.CreateRouteResponse, error) {
+	if req.GetDryRun() {
+		return s.previewCreateRoute(ctx, CreateRequest{Repo: req.GetRepo(), Route: req.GetRoute().GetValue(), HerdrSocket: req.GetHerdrSocket()})
+	}
 	var out CreateResult
 	if e := s.d.createRoute(CreateRequest{Repo: req.GetRepo(), Route: req.GetRoute().GetValue(), HerdrSocket: req.GetHerdrSocket()}, &out); e != nil {
 		return nil, rpcFailure(ctx, e)
@@ -130,6 +136,9 @@ func (s *messageService) CreateRoute(ctx context.Context, req *daemonv1.CreateRo
 }
 
 func (s *messageService) AdoptRoute(ctx context.Context, req *daemonv1.AdoptRouteRequest) (*daemonv1.AdoptRouteResponse, error) {
+	if req.GetDryRun() {
+		return s.previewAdoptRoute(ctx, req.GetRoute().GetValue(), AdoptRequest{Inbox: req.GetInbox(), ConfirmPairSHA256: req.GetConfirmPairSha256()})
+	}
 	var out AdoptResult
 	if e := s.d.adoptRoute(ctx, req.GetRoute().GetValue(), AdoptRequest{Inbox: req.GetInbox(), ConfirmPairSHA256: req.GetConfirmPairSha256()}, &out); e != nil {
 		return nil, rpcFailure(ctx, e)
@@ -138,6 +147,9 @@ func (s *messageService) AdoptRoute(ctx context.Context, req *daemonv1.AdoptRout
 }
 
 func (s *messageService) RemoveRoute(ctx context.Context, req *daemonv1.RemoveRouteRequest) (*daemonv1.RemoveRouteResponse, error) {
+	if req.GetDryRun() {
+		return s.previewRemoveRoute(ctx, req.GetRoute().GetValue())
+	}
 	if e := s.d.removeRoute(req.GetRoute().GetValue()); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
@@ -145,6 +157,9 @@ func (s *messageService) RemoveRoute(ctx context.Context, req *daemonv1.RemoveRo
 }
 
 func (s *messageService) ResetEvents(ctx context.Context, req *daemonv1.ResetEventsRequest) (*daemonv1.ResetEventsResponse, error) {
+	if req.GetDryRun() {
+		return s.previewResetEvents(ctx, req.GetRoute().GetValue(), req.GetConfirmRoute())
+	}
 	var out ResetResult
 	if e := s.d.resetEvents(ctx, req.GetRoute().GetValue(), ResetRequest{ConfirmRoute: req.GetConfirmRoute()}, &out); e != nil {
 		return nil, rpcFailure(ctx, e)
@@ -201,6 +216,9 @@ func (s *messageService) PutSetup(ctx context.Context, req *daemonv1.PutSetupReq
 		q.Probes = append(q.Probes, Probe{Identity: rawJSON(p.GetIdentityJson()), InboxWriteDenied: p.GetInboxWriteDenied(),
 			SocketConnectDenied: p.GetSocketConnectDenied(), RecordedBy: p.GetRecordedBy()})
 	}
+	if req.GetDryRun() {
+		return s.previewPutSetup(ctx, req.GetRoute().GetValue(), q)
+	}
 	var out SetupResult
 	if e := s.d.putSetup(ctx, req.GetRoute().GetValue(), q, &out); e != nil {
 		return nil, rpcFailure(ctx, e)
@@ -217,6 +235,9 @@ func rawJSON(s string) json.RawMessage {
 }
 
 func (s *messageService) Enroll(ctx context.Context, req *daemonv1.EnrollRequest) (*daemonv1.EnrollResponse, error) {
+	if req.GetDryRun() {
+		return s.previewEnroll(ctx, req.GetRoute().GetValue(), EnrollRequest{Name: req.GetName(), Role: req.GetRole()})
+	}
 	var sum string
 	if e := s.d.enroll(ctx, req.GetRoute().GetValue(), EnrollRequest{Name: req.GetName(), Role: req.GetRole()}, &sum); e != nil {
 		return nil, rpcFailure(ctx, e)
@@ -225,8 +246,11 @@ func (s *messageService) Enroll(ctx context.Context, req *daemonv1.EnrollRequest
 }
 
 func (s *messageService) ApprovePair(ctx context.Context, req *daemonv1.ApprovePairRequest) (*daemonv1.ApprovePairResponse, error) {
-	var out ApproveResult
 	q := ApproveRequest{SHA256: req.GetSha256(), Interaction: req.GetInteraction(), AskedBy: req.GetAskedBy(), Credentials: req.GetCredentials()}
+	if req.GetDryRun() {
+		return s.previewApprovePair(ctx, req.GetRoute().GetValue(), q)
+	}
+	var out ApproveResult
 	if e := s.d.approve(ctx, req.GetRoute().GetValue(), q, &out); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
@@ -238,6 +262,9 @@ func (s *messageService) ApprovePair(ctx context.Context, req *daemonv1.ApproveP
 }
 
 func (s *messageService) RetirePair(ctx context.Context, req *daemonv1.RetirePairRequest) (*daemonv1.RetirePairResponse, error) {
+	if req.GetDryRun() {
+		return s.previewRetirePair(ctx, req.GetRoute().GetValue(), RetireRequest{Name: req.GetName(), SHA256: req.GetSha256()})
+	}
 	if e := s.d.retire(ctx, req.GetRoute().GetValue(), RetireRequest{Name: req.GetName(), SHA256: req.GetSha256()}); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
@@ -245,6 +272,9 @@ func (s *messageService) RetirePair(ctx context.Context, req *daemonv1.RetirePai
 }
 
 func (s *messageService) RevokeCredential(ctx context.Context, req *daemonv1.RevokeCredentialRequest) (*daemonv1.RevokeCredentialResponse, error) {
+	if req.GetDryRun() {
+		return s.previewRevokeCredential(ctx, req.GetRoute().GetValue(), req.GetName())
+	}
 	if e := s.d.revokeCredential(ctx, req.GetRoute().GetValue(), req.GetName()); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
@@ -252,6 +282,9 @@ func (s *messageService) RevokeCredential(ctx context.Context, req *daemonv1.Rev
 }
 
 func (s *messageService) Send(ctx context.Context, req *daemonv1.SendRequest) (*daemonv1.SendResponse, error) {
+	if req.GetDryRun() {
+		return s.previewSend(ctx, req.GetRoute().GetValue(), SendRequest{To: req.GetTo(), Kind: req.GetKind(), Body: req.GetBody(), ReplyTo: req.GetReplyTo(), Key: req.GetKey()})
+	}
 	var out SendResult
 	q := SendRequest{To: req.GetTo(), Kind: req.GetKind(), Body: req.GetBody(), ReplyTo: req.GetReplyTo(), Key: req.GetKey()}
 	if e := s.d.send(ctx, req.GetRoute().GetValue(), q, &out); e != nil {
@@ -261,8 +294,11 @@ func (s *messageService) Send(ctx context.Context, req *daemonv1.SendRequest) (*
 }
 
 func (s *messageService) Claim(ctx context.Context, req *daemonv1.ClaimRequest) (*daemonv1.ClaimResponse, error) {
-	var out ClaimResult
 	q := ClaimRequest{ReadKey: req.GetReadKey(), Token: req.GetToken(), ExtendKey: req.GetExtendKey()}
+	if req.GetDryRun() {
+		return s.previewClaim(ctx, req.GetRoute().GetValue(), q)
+	}
+	var out ClaimResult
 	if e := s.d.claim(ctx, req.GetRoute().GetValue(), q, &out); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
@@ -274,6 +310,9 @@ func (s *messageService) Claim(ctx context.Context, req *daemonv1.ClaimRequest) 
 }
 
 func (s *messageService) Ack(ctx context.Context, req *daemonv1.AckRequest) (*daemonv1.AckResponse, error) {
+	if req.GetDryRun() {
+		return s.previewAck(ctx, req.GetRoute().GetValue(), req.GetClaim(), AckRequest{ID: req.GetId().GetValue(), Record: req.GetRecord()})
+	}
 	var out AckResult
 	if e := s.d.ack(ctx, req.GetRoute().GetValue(), req.GetClaim(), AckRequest{ID: req.GetId().GetValue(), Record: req.GetRecord()}, &out); e != nil {
 		return nil, rpcFailure(ctx, e)
@@ -282,6 +321,9 @@ func (s *messageService) Ack(ctx context.Context, req *daemonv1.AckRequest) (*da
 }
 
 func (s *messageService) Release(ctx context.Context, req *daemonv1.ReleaseRequest) (*daemonv1.ReleaseResponse, error) {
+	if req.GetDryRun() {
+		return s.previewRelease(ctx, req.GetRoute().GetValue(), req.GetClaim())
+	}
 	if e := s.d.release(ctx, req.GetRoute().GetValue(), req.GetClaim()); e != nil {
 		return nil, rpcFailure(ctx, e)
 	}
@@ -298,6 +340,9 @@ func holdsToProto(holds map[string]HoldOwner) map[string]*daemonv1.HoldOwner {
 }
 
 func (s *messageService) Hold(ctx context.Context, req *daemonv1.HoldRequest) (*daemonv1.HoldResponse, error) {
+	if req.GetDryRun() {
+		return s.previewHold(ctx, req.GetRoute().GetValue(), req.GetTarget(), req.GetReason())
+	}
 	var out HoldResult
 	reason := req.GetReason()
 	if e := s.d.holdOp(ctx, req.GetRoute().GetValue(), req.GetTarget(), &reason, &out); e != nil {
@@ -307,6 +352,9 @@ func (s *messageService) Hold(ctx context.Context, req *daemonv1.HoldRequest) (*
 }
 
 func (s *messageService) Unhold(ctx context.Context, req *daemonv1.UnholdRequest) (*daemonv1.UnholdResponse, error) {
+	if req.GetDryRun() {
+		return s.previewUnhold(ctx, req.GetRoute().GetValue(), req.GetTarget())
+	}
 	var out HoldResult
 	if e := s.d.holdOp(ctx, req.GetRoute().GetValue(), req.GetTarget(), nil, &out); e != nil {
 		return nil, rpcFailure(ctx, e)
@@ -355,6 +403,9 @@ func (s *messageService) GetOperation(ctx context.Context, req *daemonv1.GetOper
 }
 
 func (s *messageService) ResolveOperation(ctx context.Context, req *daemonv1.ResolveOperationRequest) (*daemonv1.ResolveOperationResponse, error) {
+	if req.GetDryRun() {
+		return s.previewResolveOperation(ctx, req)
+	}
 	op, e := s.d.resolveOp(req.GetId(), int(req.GetStep()), ResolveRequest{Decision: req.GetDecision()})
 	if e != nil {
 		return nil, rpcFailure(ctx, e)

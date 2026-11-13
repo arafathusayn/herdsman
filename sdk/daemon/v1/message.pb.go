@@ -492,7 +492,9 @@ type ResolveOperationRequest struct {
 	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Step  int32                  `protobuf:"varint,2,opt,name=step,proto3" json:"step,omitempty"`
 	// "done" or "rerun".
-	Decision      string `protobuf:"bytes,3,opt,name=decision,proto3" json:"decision,omitempty"`
+	Decision string `protobuf:"bytes,3,opt,name=decision,proto3" json:"decision,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,4,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -548,11 +550,20 @@ func (x *ResolveOperationRequest) GetDecision() string {
 	return ""
 }
 
+func (x *ResolveOperationRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type ResolveOperationResponse struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Version *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
 	// The operation as JSON.
 	OperationJson string `protobuf:"bytes,2,opt,name=operation_json,json=operationJson,proto3" json:"operation_json,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,3,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -599,6 +610,13 @@ func (x *ResolveOperationResponse) GetOperationJson() string {
 		return x.OperationJson
 	}
 	return ""
+}
+
+func (x *ResolveOperationResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
 }
 
 type HelloRequest struct {
@@ -989,7 +1007,9 @@ func (x *HerdrHealth) GetStatus() string {
 type ShutdownRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// "stop" or "restart".
-	Reason        string `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	Reason string `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1031,9 +1051,18 @@ func (x *ShutdownRequest) GetReason() string {
 	return ""
 }
 
+func (x *ShutdownRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type ShutdownResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,2,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1071,6 +1100,13 @@ func (*ShutdownResponse) Descriptor() ([]byte, []int) {
 func (x *ShutdownResponse) GetVersion() *v1.Version {
 	if x != nil {
 		return x.Version
+	}
+	return nil
+}
+
+func (x *ShutdownResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
 	}
 	return nil
 }
@@ -1249,10 +1285,12 @@ func (x *RouteInfo) GetStatus() string {
 }
 
 type CreateRouteRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Repo          string                 `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
-	Route         *v1.RouteId            `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
-	HerdrSocket   string                 `protobuf:"bytes,3,opt,name=herdr_socket,json=herdrSocket,proto3" json:"herdr_socket,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Repo        string                 `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
+	Route       *v1.RouteId            `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
+	HerdrSocket string                 `protobuf:"bytes,3,opt,name=herdr_socket,json=herdrSocket,proto3" json:"herdr_socket,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,4,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1308,12 +1346,21 @@ func (x *CreateRouteRequest) GetHerdrSocket() string {
 	return ""
 }
 
+func (x *CreateRouteRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type CreateRouteResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Route         *v1.RouteId            `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
-	Inbox         string                 `protobuf:"bytes,3,opt,name=inbox,proto3" json:"inbox,omitempty"`
-	Epoch         string                 `protobuf:"bytes,4,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Route   *v1.RouteId            `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
+	Inbox   string                 `protobuf:"bytes,3,opt,name=inbox,proto3" json:"inbox,omitempty"`
+	Epoch   string                 `protobuf:"bytes,4,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,5,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1376,13 +1423,22 @@ func (x *CreateRouteResponse) GetEpoch() string {
 	return ""
 }
 
+func (x *CreateRouteResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type AdoptRouteRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Route             *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
 	Inbox             string                 `protobuf:"bytes,2,opt,name=inbox,proto3" json:"inbox,omitempty"`
 	ConfirmPairSha256 string                 `protobuf:"bytes,3,opt,name=confirm_pair_sha256,json=confirmPairSha256,proto3" json:"confirm_pair_sha256,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,4,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AdoptRouteRequest) Reset() {
@@ -1436,6 +1492,13 @@ func (x *AdoptRouteRequest) GetConfirmPairSha256() string {
 	return ""
 }
 
+func (x *AdoptRouteRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type AdoptRouteResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
@@ -1443,6 +1506,8 @@ type AdoptRouteResponse struct {
 	Epoch         string                 `protobuf:"bytes,3,opt,name=epoch,proto3" json:"epoch,omitempty"`
 	LastMessageId string                 `protobuf:"bytes,4,opt,name=last_message_id,json=lastMessageId,proto3" json:"last_message_id,omitempty"`
 	LegacyProof   bool                   `protobuf:"varint,5,opt,name=legacy_proof,json=legacyProof,proto3" json:"legacy_proof,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,6,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1512,9 +1577,18 @@ func (x *AdoptRouteResponse) GetLegacyProof() bool {
 	return false
 }
 
+func (x *AdoptRouteResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type RemoveRouteRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Route *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1556,11 +1630,20 @@ func (x *RemoveRouteRequest) GetRoute() *v1.RouteId {
 	return nil
 }
 
+func (x *RemoveRouteRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type RemoveRouteResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Removed       bool                   `protobuf:"varint,2,opt,name=removed,proto3" json:"removed,omitempty"`
-	InboxKept     bool                   `protobuf:"varint,3,opt,name=inbox_kept,json=inboxKept,proto3" json:"inbox_kept,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Version   *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Removed   bool                   `protobuf:"varint,2,opt,name=removed,proto3" json:"removed,omitempty"`
+	InboxKept bool                   `protobuf:"varint,3,opt,name=inbox_kept,json=inboxKept,proto3" json:"inbox_kept,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,4,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1616,11 +1699,20 @@ func (x *RemoveRouteResponse) GetInboxKept() bool {
 	return false
 }
 
+func (x *RemoveRouteResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type ResetEventsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Route *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
 	// Must repeat the route's name.
-	ConfirmRoute  string `protobuf:"bytes,2,opt,name=confirm_route,json=confirmRoute,proto3" json:"confirm_route,omitempty"`
+	ConfirmRoute string `protobuf:"bytes,2,opt,name=confirm_route,json=confirmRoute,proto3" json:"confirm_route,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1669,11 +1761,20 @@ func (x *ResetEventsRequest) GetConfirmRoute() string {
 	return ""
 }
 
+func (x *ResetEventsRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type ResetEventsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
 	Epoch         string                 `protobuf:"bytes,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
 	CheckpointSeq int64                  `protobuf:"varint,3,opt,name=checkpoint_seq,json=checkpointSeq,proto3" json:"checkpoint_seq,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,4,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1727,6 +1828,13 @@ func (x *ResetEventsResponse) GetCheckpointSeq() int64 {
 		return x.CheckpointSeq
 	}
 	return 0
+}
+
+func (x *ResetEventsResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
 }
 
 type StatusRequest struct {
@@ -2527,8 +2635,10 @@ type PutSetupRequest struct {
 	WatchTargetsJson  string                 `protobuf:"bytes,6,opt,name=watch_targets_json,json=watchTargetsJson,proto3" json:"watch_targets_json,omitempty"`
 	ResumeTargetsJson string                 `protobuf:"bytes,7,opt,name=resume_targets_json,json=resumeTargetsJson,proto3" json:"resume_targets_json,omitempty"`
 	Probes            []*Probe               `protobuf:"bytes,8,rep,name=probes,proto3" json:"probes,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,9,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PutSetupRequest) Reset() {
@@ -2617,10 +2727,19 @@ func (x *PutSetupRequest) GetProbes() []*Probe {
 	return nil
 }
 
+func (x *PutSetupRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type PutSetupResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	ProofSha256   string                 `protobuf:"bytes,2,opt,name=proof_sha256,json=proofSha256,proto3" json:"proof_sha256,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Version     *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	ProofSha256 string                 `protobuf:"bytes,2,opt,name=proof_sha256,json=proofSha256,proto3" json:"proof_sha256,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,3,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2669,11 +2788,20 @@ func (x *PutSetupResponse) GetProofSha256() string {
 	return ""
 }
 
+func (x *PutSetupResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type EnrollRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Role          string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Route *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Role  string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,4,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2729,10 +2857,19 @@ func (x *EnrollRequest) GetRole() string {
 	return ""
 }
 
+func (x *EnrollRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type EnrollResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
 	PendingSha256 string                 `protobuf:"bytes,2,opt,name=pending_sha256,json=pendingSha256,proto3" json:"pending_sha256,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,3,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2781,13 +2918,22 @@ func (x *EnrollResponse) GetPendingSha256() string {
 	return ""
 }
 
+func (x *EnrollResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type ApprovePairRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
-	Sha256        string                 `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`
-	Interaction   string                 `protobuf:"bytes,3,opt,name=interaction,proto3" json:"interaction,omitempty"`
-	AskedBy       string                 `protobuf:"bytes,4,opt,name=asked_by,json=askedBy,proto3" json:"asked_by,omitempty"`
-	Credentials   map[string]string      `protobuf:"bytes,5,rep,name=credentials,proto3" json:"credentials,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Route       *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Sha256      string                 `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	Interaction string                 `protobuf:"bytes,3,opt,name=interaction,proto3" json:"interaction,omitempty"`
+	AskedBy     string                 `protobuf:"bytes,4,opt,name=asked_by,json=askedBy,proto3" json:"asked_by,omitempty"`
+	Credentials map[string]string      `protobuf:"bytes,5,rep,name=credentials,proto3" json:"credentials,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,6,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2857,12 +3003,21 @@ func (x *ApprovePairRequest) GetCredentials() map[string]string {
 	return nil
 }
 
+func (x *ApprovePairRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type ApprovePairResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Approved      bool                   `protobuf:"varint,2,opt,name=approved,proto3" json:"approved,omitempty"`
-	Credentials   []*ApprovedCredential  `protobuf:"bytes,3,rep,name=credentials,proto3" json:"credentials,omitempty"`
-	Revoked       []string               `protobuf:"bytes,4,rep,name=revoked,proto3" json:"revoked,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Version     *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Approved    bool                   `protobuf:"varint,2,opt,name=approved,proto3" json:"approved,omitempty"`
+	Credentials []*ApprovedCredential  `protobuf:"bytes,3,rep,name=credentials,proto3" json:"credentials,omitempty"`
+	Revoked     []string               `protobuf:"bytes,4,rep,name=revoked,proto3" json:"revoked,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,5,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2925,6 +3080,13 @@ func (x *ApprovePairResponse) GetRevoked() []string {
 	return nil
 }
 
+func (x *ApprovePairResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 // ApprovedCredential is one party's credential option.
 type ApprovedCredential struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2979,10 +3141,12 @@ func (x *ApprovedCredential) GetOption() string {
 }
 
 type RetirePairRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Sha256        string                 `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Route  *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Name   string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Sha256 string                 `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,4,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3038,11 +3202,20 @@ func (x *RetirePairRequest) GetSha256() string {
 	return ""
 }
 
+func (x *RetirePairRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type RetirePairResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Retired       string                 `protobuf:"bytes,2,opt,name=retired,proto3" json:"retired,omitempty"`
-	Revoked       bool                   `protobuf:"varint,3,opt,name=revoked,proto3" json:"revoked,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Retired string                 `protobuf:"bytes,2,opt,name=retired,proto3" json:"retired,omitempty"`
+	Revoked bool                   `protobuf:"varint,3,opt,name=revoked,proto3" json:"revoked,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,4,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3098,10 +3271,19 @@ func (x *RetirePairResponse) GetRevoked() bool {
 	return false
 }
 
+func (x *RetirePairResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type RevokeCredentialRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Route *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3150,10 +3332,19 @@ func (x *RevokeCredentialRequest) GetName() string {
 	return ""
 }
 
+func (x *RevokeCredentialRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type RevokeCredentialResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Revoked       bool                   `protobuf:"varint,2,opt,name=revoked,proto3" json:"revoked,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Revoked bool                   `protobuf:"varint,2,opt,name=revoked,proto3" json:"revoked,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,3,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3202,6 +3393,13 @@ func (x *RevokeCredentialResponse) GetRevoked() bool {
 	return false
 }
 
+func (x *RevokeCredentialResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type SendRequest struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Route   *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
@@ -3210,7 +3408,9 @@ type SendRequest struct {
 	Body    string                 `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
 	ReplyTo string                 `protobuf:"bytes,5,opt,name=reply_to,json=replyTo,proto3" json:"reply_to,omitempty"`
 	// Makes a retry of the same send harmless.
-	Key           string `protobuf:"bytes,6,opt,name=key,proto3" json:"key,omitempty"`
+	Key string `protobuf:"bytes,6,opt,name=key,proto3" json:"key,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,7,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3287,12 +3487,21 @@ func (x *SendRequest) GetKey() string {
 	return ""
 }
 
+func (x *SendRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type SendResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Id            *v1.MessageId          `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
-	Seq           int64                  `protobuf:"varint,3,opt,name=seq,proto3" json:"seq,omitempty"`
-	Duplicate     bool                   `protobuf:"varint,4,opt,name=duplicate,proto3" json:"duplicate,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Version   *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Id        *v1.MessageId          `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Seq       int64                  `protobuf:"varint,3,opt,name=seq,proto3" json:"seq,omitempty"`
+	Duplicate bool                   `protobuf:"varint,4,opt,name=duplicate,proto3" json:"duplicate,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,5,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3355,12 +3564,21 @@ func (x *SendResponse) GetDuplicate() bool {
 	return false
 }
 
+func (x *SendResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type ClaimRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
-	ReadKey       string                 `protobuf:"bytes,2,opt,name=read_key,json=readKey,proto3" json:"read_key,omitempty"`
-	Token         string                 `protobuf:"bytes,3,opt,name=token,proto3" json:"token,omitempty"`
-	ExtendKey     string                 `protobuf:"bytes,4,opt,name=extend_key,json=extendKey,proto3" json:"extend_key,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Route     *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	ReadKey   string                 `protobuf:"bytes,2,opt,name=read_key,json=readKey,proto3" json:"read_key,omitempty"`
+	Token     string                 `protobuf:"bytes,3,opt,name=token,proto3" json:"token,omitempty"`
+	ExtendKey string                 `protobuf:"bytes,4,opt,name=extend_key,json=extendKey,proto3" json:"extend_key,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,5,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3423,13 +3641,22 @@ func (x *ClaimRequest) GetExtendKey() string {
 	return ""
 }
 
+func (x *ClaimRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type ClaimResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Claim         string                 `protobuf:"bytes,2,opt,name=claim,proto3" json:"claim,omitempty"`
-	Manifest      []*ManifestEntry       `protobuf:"bytes,3,rep,name=manifest,proto3" json:"manifest,omitempty"`
-	PendingNew    int32                  `protobuf:"varint,4,opt,name=pending_new,json=pendingNew,proto3" json:"pending_new,omitempty"`
-	Quarantine    int32                  `protobuf:"varint,5,opt,name=quarantine,proto3" json:"quarantine,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Version    *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Claim      string                 `protobuf:"bytes,2,opt,name=claim,proto3" json:"claim,omitempty"`
+	Manifest   []*ManifestEntry       `protobuf:"bytes,3,rep,name=manifest,proto3" json:"manifest,omitempty"`
+	PendingNew int32                  `protobuf:"varint,4,opt,name=pending_new,json=pendingNew,proto3" json:"pending_new,omitempty"`
+	Quarantine int32                  `protobuf:"varint,5,opt,name=quarantine,proto3" json:"quarantine,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,6,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3497,6 +3724,13 @@ func (x *ClaimResponse) GetQuarantine() int32 {
 		return x.Quarantine
 	}
 	return 0
+}
+
+func (x *ClaimResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
 }
 
 // ManifestEntry is one claimed message's envelope and path, never its body.
@@ -3593,11 +3827,13 @@ func (x *ManifestEntry) GetPath() string {
 }
 
 type AckRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
-	Claim         string                 `protobuf:"bytes,2,opt,name=claim,proto3" json:"claim,omitempty"`
-	Id            *v1.MessageId          `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
-	Record        string                 `protobuf:"bytes,4,opt,name=record,proto3" json:"record,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Route  *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Claim  string                 `protobuf:"bytes,2,opt,name=claim,proto3" json:"claim,omitempty"`
+	Id     *v1.MessageId          `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
+	Record string                 `protobuf:"bytes,4,opt,name=record,proto3" json:"record,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,5,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3660,12 +3896,21 @@ func (x *AckRequest) GetRecord() string {
 	return ""
 }
 
+func (x *AckRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type AckResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Id            *v1.MessageId          `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
-	Seq           int64                  `protobuf:"varint,3,opt,name=seq,proto3" json:"seq,omitempty"`
-	Already       bool                   `protobuf:"varint,4,opt,name=already,proto3" json:"already,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Id      *v1.MessageId          `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Seq     int64                  `protobuf:"varint,3,opt,name=seq,proto3" json:"seq,omitempty"`
+	Already bool                   `protobuf:"varint,4,opt,name=already,proto3" json:"already,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,5,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3728,10 +3973,19 @@ func (x *AckResponse) GetAlready() bool {
 	return false
 }
 
+func (x *AckResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type ReleaseRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
-	Claim         string                 `protobuf:"bytes,2,opt,name=claim,proto3" json:"claim,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Route *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Claim string                 `protobuf:"bytes,2,opt,name=claim,proto3" json:"claim,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3780,10 +4034,19 @@ func (x *ReleaseRequest) GetClaim() string {
 	return ""
 }
 
+func (x *ReleaseRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type ReleaseResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Released      bool                   `protobuf:"varint,2,opt,name=released,proto3" json:"released,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Version  *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Released bool                   `protobuf:"varint,2,opt,name=released,proto3" json:"released,omitempty"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,3,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3832,11 +4095,20 @@ func (x *ReleaseResponse) GetReleased() bool {
 	return false
 }
 
+func (x *ReleaseResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type HoldRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
-	Target        string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
-	Reason        string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Route  *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Target string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	Reason string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,4,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3892,10 +4164,19 @@ func (x *HoldRequest) GetReason() string {
 	return ""
 }
 
+func (x *HoldRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type HoldResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Holds         map[string]*HoldOwner  `protobuf:"bytes,2,rep,name=holds,proto3" json:"holds,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Holds   map[string]*HoldOwner  `protobuf:"bytes,2,rep,name=holds,proto3" json:"holds,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,3,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3944,10 +4225,19 @@ func (x *HoldResponse) GetHolds() map[string]*HoldOwner {
 	return nil
 }
 
+func (x *HoldResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
 type UnholdRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Route         *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
-	Target        string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Route  *v1.RouteId            `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
+	Target string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	// Check the call and return its plan, changing nothing.
+	DryRun        bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3996,10 +4286,19 @@ func (x *UnholdRequest) GetTarget() string {
 	return ""
 }
 
+func (x *UnholdRequest) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
+}
+
 type UnholdResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Holds         map[string]*HoldOwner  `protobuf:"bytes,2,rep,name=holds,proto3" json:"holds,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *v1.Version            `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Holds   map[string]*HoldOwner  `protobuf:"bytes,2,rep,name=holds,proto3" json:"holds,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// What the call would do; set only when the request asked for a preview.
+	Plan          *v1.Plan `protobuf:"bytes,3,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4044,6 +4343,13 @@ func (x *UnholdResponse) GetVersion() *v1.Version {
 func (x *UnholdResponse) GetHolds() map[string]*HoldOwner {
 	if x != nil {
 		return x.Holds
+	}
+	return nil
+}
+
+func (x *UnholdResponse) GetPlan() *v1.Plan {
+	if x != nil {
+		return x.Plan
 	}
 	return nil
 }
@@ -4427,14 +4733,16 @@ const file_herdsman_daemon_v1_message_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"r\n" +
 	"\x14GetOperationResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12%\n" +
-	"\x0eoperation_json\x18\x02 \x01(\tR\roperationJson\"Y\n" +
+	"\x0eoperation_json\x18\x02 \x01(\tR\roperationJson\"r\n" +
 	"\x17ResolveOperationRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04step\x18\x02 \x01(\x05R\x04step\x12\x1a\n" +
-	"\bdecision\x18\x03 \x01(\tR\bdecision\"v\n" +
+	"\bdecision\x18\x03 \x01(\tR\bdecision\x12\x17\n" +
+	"\adry_run\x18\x04 \x01(\bR\x06dryRun\"\xa2\x01\n" +
 	"\x18ResolveOperationResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12%\n" +
-	"\x0eoperation_json\x18\x02 \x01(\tR\roperationJson\"\x0e\n" +
+	"\x0eoperation_json\x18\x02 \x01(\tR\roperationJson\x12*\n" +
+	"\x04plan\x18\x03 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\x0e\n" +
 	"\fHelloRequest\"\xe5\x01\n" +
 	"\rHelloResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12%\n" +
@@ -4457,11 +4765,13 @@ const file_herdsman_daemon_v1_message_proto_rawDesc = "" +
 	"\x06reason\x18\x04 \x01(\tR\x06reason\"=\n" +
 	"\vHerdrHealth\x12\x16\n" +
 	"\x06socket\x18\x01 \x01(\tR\x06socket\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\")\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"B\n" +
 	"\x0fShutdownRequest\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"G\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x17\n" +
+	"\adry_run\x18\x02 \x01(\bR\x06dryRun\"s\n" +
 	"\x10ShutdownResponse\x123\n" +
-	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\"\x13\n" +
+	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12*\n" +
+	"\x04plan\x18\x02 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\x13\n" +
 	"\x11ListRoutesRequest\"\x80\x01\n" +
 	"\x12ListRoutesResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x125\n" +
@@ -4472,40 +4782,48 @@ const file_herdsman_daemon_v1_message_proto_rawDesc = "" +
 	"\x05owner\x18\x03 \x01(\tR\x05owner\x12\x14\n" +
 	"\x05epoch\x18\x04 \x01(\tR\x05epoch\x12\x19\n" +
 	"\blast_seq\x18\x05 \x01(\x03R\alastSeq\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\"|\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\"\x95\x01\n" +
 	"\x12CreateRouteRequest\x12\x12\n" +
 	"\x04repo\x18\x01 \x01(\tR\x04repo\x12/\n" +
 	"\x05route\x18\x02 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12!\n" +
-	"\fherdr_socket\x18\x03 \x01(\tR\vherdrSocket\"\xa7\x01\n" +
+	"\fherdr_socket\x18\x03 \x01(\tR\vherdrSocket\x12\x17\n" +
+	"\adry_run\x18\x04 \x01(\bR\x06dryRun\"\xd3\x01\n" +
 	"\x13CreateRouteResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12/\n" +
 	"\x05route\x18\x02 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
 	"\x05inbox\x18\x03 \x01(\tR\x05inbox\x12\x14\n" +
-	"\x05epoch\x18\x04 \x01(\tR\x05epoch\"\x8a\x01\n" +
+	"\x05epoch\x18\x04 \x01(\tR\x05epoch\x12*\n" +
+	"\x04plan\x18\x05 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\xa3\x01\n" +
 	"\x11AdoptRouteRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
 	"\x05inbox\x18\x02 \x01(\tR\x05inbox\x12.\n" +
-	"\x13confirm_pair_sha256\x18\x03 \x01(\tR\x11confirmPairSha256\"\xdb\x01\n" +
+	"\x13confirm_pair_sha256\x18\x03 \x01(\tR\x11confirmPairSha256\x12\x17\n" +
+	"\adry_run\x18\x04 \x01(\bR\x06dryRun\"\x87\x02\n" +
 	"\x12AdoptRouteResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12/\n" +
 	"\x05route\x18\x02 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
 	"\x05epoch\x18\x03 \x01(\tR\x05epoch\x12&\n" +
 	"\x0flast_message_id\x18\x04 \x01(\tR\rlastMessageId\x12!\n" +
-	"\flegacy_proof\x18\x05 \x01(\bR\vlegacyProof\"E\n" +
+	"\flegacy_proof\x18\x05 \x01(\bR\vlegacyProof\x12*\n" +
+	"\x04plan\x18\x06 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"^\n" +
 	"\x12RemoveRouteRequest\x12/\n" +
-	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\"\x83\x01\n" +
+	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x17\n" +
+	"\adry_run\x18\x02 \x01(\bR\x06dryRun\"\xaf\x01\n" +
 	"\x13RemoveRouteResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x18\n" +
 	"\aremoved\x18\x02 \x01(\bR\aremoved\x12\x1d\n" +
 	"\n" +
-	"inbox_kept\x18\x03 \x01(\bR\tinboxKept\"j\n" +
+	"inbox_kept\x18\x03 \x01(\bR\tinboxKept\x12*\n" +
+	"\x04plan\x18\x04 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\x83\x01\n" +
 	"\x12ResetEventsRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12#\n" +
-	"\rconfirm_route\x18\x02 \x01(\tR\fconfirmRoute\"\x87\x01\n" +
+	"\rconfirm_route\x18\x02 \x01(\tR\fconfirmRoute\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"\xb3\x01\n" +
 	"\x13ResetEventsResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x14\n" +
 	"\x05epoch\x18\x02 \x01(\tR\x05epoch\x12%\n" +
-	"\x0echeckpoint_seq\x18\x03 \x01(\x03R\rcheckpointSeq\"@\n" +
+	"\x0echeckpoint_seq\x18\x03 \x01(\x03R\rcheckpointSeq\x12*\n" +
+	"\x04plan\x18\x04 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"@\n" +
 	"\rStatusRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\"\xd4\x04\n" +
 	"\x0eStatusResponse\x123\n" +
@@ -4569,7 +4887,7 @@ const file_herdsman_daemon_v1_message_proto_rawDesc = "" +
 	"\x12inbox_write_denied\x18\x02 \x01(\bR\x10inboxWriteDenied\x122\n" +
 	"\x15socket_connect_denied\x18\x03 \x01(\bR\x13socketConnectDenied\x12\x1f\n" +
 	"\vrecorded_by\x18\x04 \x01(\tR\n" +
-	"recordedBy\"\xcf\x02\n" +
+	"recordedBy\"\xe8\x02\n" +
 	"\x0fPutSetupRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
 	"\x05rules\x18\x02 \x03(\tR\x05rules\x12\x16\n" +
@@ -4578,66 +4896,79 @@ const file_herdsman_daemon_v1_message_proto_rawDesc = "" +
 	"\rboundary_json\x18\x05 \x01(\tR\fboundaryJson\x12,\n" +
 	"\x12watch_targets_json\x18\x06 \x01(\tR\x10watchTargetsJson\x12.\n" +
 	"\x13resume_targets_json\x18\a \x01(\tR\x11resumeTargetsJson\x121\n" +
-	"\x06probes\x18\b \x03(\v2\x19.herdsman.daemon.v1.ProbeR\x06probes\"j\n" +
+	"\x06probes\x18\b \x03(\v2\x19.herdsman.daemon.v1.ProbeR\x06probes\x12\x17\n" +
+	"\adry_run\x18\t \x01(\bR\x06dryRun\"\x96\x01\n" +
 	"\x10PutSetupResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12!\n" +
-	"\fproof_sha256\x18\x02 \x01(\tR\vproofSha256\"h\n" +
+	"\fproof_sha256\x18\x02 \x01(\tR\vproofSha256\x12*\n" +
+	"\x04plan\x18\x03 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\x81\x01\n" +
 	"\rEnrollRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
-	"\x04role\x18\x03 \x01(\tR\x04role\"l\n" +
+	"\x04role\x18\x03 \x01(\tR\x04role\x12\x17\n" +
+	"\adry_run\x18\x04 \x01(\bR\x06dryRun\"\x98\x01\n" +
 	"\x0eEnrollResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12%\n" +
-	"\x0epending_sha256\x18\x02 \x01(\tR\rpendingSha256\"\xb5\x02\n" +
+	"\x0epending_sha256\x18\x02 \x01(\tR\rpendingSha256\x12*\n" +
+	"\x04plan\x18\x03 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\xce\x02\n" +
 	"\x12ApprovePairRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x16\n" +
 	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12 \n" +
 	"\vinteraction\x18\x03 \x01(\tR\vinteraction\x12\x19\n" +
 	"\basked_by\x18\x04 \x01(\tR\aaskedBy\x12Y\n" +
-	"\vcredentials\x18\x05 \x03(\v27.herdsman.daemon.v1.ApprovePairRequest.CredentialsEntryR\vcredentials\x1a>\n" +
+	"\vcredentials\x18\x05 \x03(\v27.herdsman.daemon.v1.ApprovePairRequest.CredentialsEntryR\vcredentials\x12\x17\n" +
+	"\adry_run\x18\x06 \x01(\bR\x06dryRun\x1a>\n" +
 	"\x10CredentialsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xca\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf6\x01\n" +
 	"\x13ApprovePairResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x1a\n" +
 	"\bapproved\x18\x02 \x01(\bR\bapproved\x12H\n" +
 	"\vcredentials\x18\x03 \x03(\v2&.herdsman.daemon.v1.ApprovedCredentialR\vcredentials\x12\x18\n" +
-	"\arevoked\x18\x04 \x03(\tR\arevoked\"@\n" +
+	"\arevoked\x18\x04 \x03(\tR\arevoked\x12*\n" +
+	"\x04plan\x18\x05 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"@\n" +
 	"\x12ApprovedCredential\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
-	"\x06option\x18\x02 \x01(\tR\x06option\"p\n" +
+	"\x06option\x18\x02 \x01(\tR\x06option\"\x89\x01\n" +
 	"\x11RetirePairRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
-	"\x06sha256\x18\x03 \x01(\tR\x06sha256\"}\n" +
+	"\x06sha256\x18\x03 \x01(\tR\x06sha256\x12\x17\n" +
+	"\adry_run\x18\x04 \x01(\bR\x06dryRun\"\xa9\x01\n" +
 	"\x12RetirePairResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x18\n" +
 	"\aretired\x18\x02 \x01(\tR\aretired\x12\x18\n" +
-	"\arevoked\x18\x03 \x01(\bR\arevoked\"^\n" +
+	"\arevoked\x18\x03 \x01(\bR\arevoked\x12*\n" +
+	"\x04plan\x18\x04 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"w\n" +
 	"\x17RevokeCredentialRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"i\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"\x95\x01\n" +
 	"\x18RevokeCredentialResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x18\n" +
-	"\arevoked\x18\x02 \x01(\bR\arevoked\"\xa3\x01\n" +
+	"\arevoked\x18\x02 \x01(\bR\arevoked\x12*\n" +
+	"\x04plan\x18\x03 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\xbc\x01\n" +
 	"\vSendRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x0e\n" +
 	"\x02to\x18\x02 \x01(\tR\x02to\x12\x12\n" +
 	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04body\x18\x04 \x01(\tR\x04body\x12\x19\n" +
 	"\breply_to\x18\x05 \x01(\tR\areplyTo\x12\x10\n" +
-	"\x03key\x18\x06 \x01(\tR\x03key\"\xa0\x01\n" +
+	"\x03key\x18\x06 \x01(\tR\x03key\x12\x17\n" +
+	"\adry_run\x18\a \x01(\bR\x06dryRun\"\xcc\x01\n" +
 	"\fSendResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12+\n" +
 	"\x02id\x18\x02 \x01(\v2\x1b.herdsman.core.v1.MessageIdR\x02id\x12\x10\n" +
 	"\x03seq\x18\x03 \x01(\x03R\x03seq\x12\x1c\n" +
-	"\tduplicate\x18\x04 \x01(\bR\tduplicate\"\x8f\x01\n" +
+	"\tduplicate\x18\x04 \x01(\bR\tduplicate\x12*\n" +
+	"\x04plan\x18\x05 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\xa8\x01\n" +
 	"\fClaimRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x19\n" +
 	"\bread_key\x18\x02 \x01(\tR\areadKey\x12\x14\n" +
 	"\x05token\x18\x03 \x01(\tR\x05token\x12\x1d\n" +
 	"\n" +
-	"extend_key\x18\x04 \x01(\tR\textendKey\"\xda\x01\n" +
+	"extend_key\x18\x04 \x01(\tR\textendKey\x12\x17\n" +
+	"\adry_run\x18\x05 \x01(\bR\x06dryRun\"\x86\x02\n" +
 	"\rClaimResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x14\n" +
 	"\x05claim\x18\x02 \x01(\tR\x05claim\x12=\n" +
@@ -4646,7 +4977,8 @@ const file_herdsman_daemon_v1_message_proto_rawDesc = "" +
 	"pendingNew\x12\x1e\n" +
 	"\n" +
 	"quarantine\x18\x05 \x01(\x05R\n" +
-	"quarantine\"\xb7\x01\n" +
+	"quarantine\x12*\n" +
+	"\x04plan\x18\x06 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\xb7\x01\n" +
 	"\rManifestEntry\x12+\n" +
 	"\x02id\x18\x01 \x01(\v2\x1b.herdsman.core.v1.MessageIdR\x02id\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\tR\x04from\x12\x0e\n" +
@@ -4654,41 +4986,49 @@ const file_herdsman_daemon_v1_message_proto_rawDesc = "" +
 	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04time\x18\x05 \x01(\x03R\x04time\x12\x19\n" +
 	"\breply_to\x18\x06 \x01(\tR\areplyTo\x12\x12\n" +
-	"\x04path\x18\a \x01(\tR\x04path\"\x98\x01\n" +
+	"\x04path\x18\a \x01(\tR\x04path\"\xb1\x01\n" +
 	"\n" +
 	"AckRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
 	"\x05claim\x18\x02 \x01(\tR\x05claim\x12+\n" +
 	"\x02id\x18\x03 \x01(\v2\x1b.herdsman.core.v1.MessageIdR\x02id\x12\x16\n" +
-	"\x06record\x18\x04 \x01(\tR\x06record\"\x9b\x01\n" +
+	"\x06record\x18\x04 \x01(\tR\x06record\x12\x17\n" +
+	"\adry_run\x18\x05 \x01(\bR\x06dryRun\"\xc7\x01\n" +
 	"\vAckResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12+\n" +
 	"\x02id\x18\x02 \x01(\v2\x1b.herdsman.core.v1.MessageIdR\x02id\x12\x10\n" +
 	"\x03seq\x18\x03 \x01(\x03R\x03seq\x12\x18\n" +
-	"\aalready\x18\x04 \x01(\bR\aalready\"W\n" +
+	"\aalready\x18\x04 \x01(\bR\aalready\x12*\n" +
+	"\x04plan\x18\x05 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"p\n" +
 	"\x0eReleaseRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x14\n" +
-	"\x05claim\x18\x02 \x01(\tR\x05claim\"b\n" +
+	"\x05claim\x18\x02 \x01(\tR\x05claim\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"\x8e\x01\n" +
 	"\x0fReleaseResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12\x1a\n" +
-	"\breleased\x18\x02 \x01(\bR\breleased\"n\n" +
+	"\breleased\x18\x02 \x01(\bR\breleased\x12*\n" +
+	"\x04plan\x18\x03 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\"\x87\x01\n" +
 	"\vHoldRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x16\n" +
-	"\x06reason\x18\x03 \x01(\tR\x06reason\"\xdf\x01\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x17\n" +
+	"\adry_run\x18\x04 \x01(\bR\x06dryRun\"\x8b\x02\n" +
 	"\fHoldResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12A\n" +
-	"\x05holds\x18\x02 \x03(\v2+.herdsman.daemon.v1.HoldResponse.HoldsEntryR\x05holds\x1aW\n" +
+	"\x05holds\x18\x02 \x03(\v2+.herdsman.daemon.v1.HoldResponse.HoldsEntryR\x05holds\x12*\n" +
+	"\x04plan\x18\x03 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\x1aW\n" +
 	"\n" +
 	"HoldsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x123\n" +
-	"\x05value\x18\x02 \x01(\v2\x1d.herdsman.daemon.v1.HoldOwnerR\x05value:\x028\x01\"X\n" +
+	"\x05value\x18\x02 \x01(\v2\x1d.herdsman.daemon.v1.HoldOwnerR\x05value:\x028\x01\"q\n" +
 	"\rUnholdRequest\x12/\n" +
 	"\x05route\x18\x01 \x01(\v2\x19.herdsman.core.v1.RouteIdR\x05route\x12\x16\n" +
-	"\x06target\x18\x02 \x01(\tR\x06target\"\xe3\x01\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\"\x8f\x02\n" +
 	"\x0eUnholdResponse\x123\n" +
 	"\aversion\x18\x01 \x01(\v2\x19.herdsman.core.v1.VersionR\aversion\x12C\n" +
-	"\x05holds\x18\x02 \x03(\v2-.herdsman.daemon.v1.UnholdResponse.HoldsEntryR\x05holds\x1aW\n" +
+	"\x05holds\x18\x02 \x03(\v2-.herdsman.daemon.v1.UnholdResponse.HoldsEntryR\x05holds\x12*\n" +
+	"\x04plan\x18\x03 \x01(\v2\x16.herdsman.core.v1.PlanR\x04plan\x1aW\n" +
 	"\n" +
 	"HoldsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x123\n" +
@@ -4841,8 +5181,9 @@ var file_herdsman_daemon_v1_message_proto_goTypes = []any{
 	(*v1.RouteId)(nil),               // 74: herdsman.core.v1.RouteId
 	(*v1.Version)(nil),               // 75: herdsman.core.v1.Version
 	(*v1.RuntimeRef)(nil),            // 76: herdsman.core.v1.RuntimeRef
-	(*v1.MessageHeader)(nil),         // 77: herdsman.core.v1.MessageHeader
-	(*v1.MessageId)(nil),             // 78: herdsman.core.v1.MessageId
+	(*v1.Plan)(nil),                  // 77: herdsman.core.v1.Plan
+	(*v1.MessageHeader)(nil),         // 78: herdsman.core.v1.MessageHeader
+	(*v1.MessageId)(nil),             // 79: herdsman.core.v1.MessageId
 }
 var file_herdsman_daemon_v1_message_proto_depIdxs = []int32{
 	74,  // 0: herdsman.daemon.v1.ResumeGoalRequest.route:type_name -> herdsman.core.v1.RouteId
@@ -4852,139 +5193,156 @@ var file_herdsman_daemon_v1_message_proto_depIdxs = []int32{
 	75,  // 4: herdsman.daemon.v1.ListOperationsResponse.version:type_name -> herdsman.core.v1.Version
 	75,  // 5: herdsman.daemon.v1.GetOperationResponse.version:type_name -> herdsman.core.v1.Version
 	75,  // 6: herdsman.daemon.v1.ResolveOperationResponse.version:type_name -> herdsman.core.v1.Version
-	75,  // 7: herdsman.daemon.v1.HelloResponse.version:type_name -> herdsman.core.v1.Version
-	75,  // 8: herdsman.daemon.v1.HealthResponse.version:type_name -> herdsman.core.v1.Version
-	15,  // 9: herdsman.daemon.v1.HealthResponse.routes:type_name -> herdsman.daemon.v1.RouteHealth
-	16,  // 10: herdsman.daemon.v1.HealthResponse.herdr:type_name -> herdsman.daemon.v1.HerdrHealth
-	74,  // 11: herdsman.daemon.v1.RouteHealth.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 12: herdsman.daemon.v1.ShutdownResponse.version:type_name -> herdsman.core.v1.Version
-	75,  // 13: herdsman.daemon.v1.ListRoutesResponse.version:type_name -> herdsman.core.v1.Version
-	21,  // 14: herdsman.daemon.v1.ListRoutesResponse.routes:type_name -> herdsman.daemon.v1.RouteInfo
-	74,  // 15: herdsman.daemon.v1.RouteInfo.route:type_name -> herdsman.core.v1.RouteId
-	74,  // 16: herdsman.daemon.v1.CreateRouteRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 17: herdsman.daemon.v1.CreateRouteResponse.version:type_name -> herdsman.core.v1.Version
-	74,  // 18: herdsman.daemon.v1.CreateRouteResponse.route:type_name -> herdsman.core.v1.RouteId
-	74,  // 19: herdsman.daemon.v1.AdoptRouteRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 20: herdsman.daemon.v1.AdoptRouteResponse.version:type_name -> herdsman.core.v1.Version
-	74,  // 21: herdsman.daemon.v1.AdoptRouteResponse.route:type_name -> herdsman.core.v1.RouteId
-	74,  // 22: herdsman.daemon.v1.RemoveRouteRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 23: herdsman.daemon.v1.RemoveRouteResponse.version:type_name -> herdsman.core.v1.Version
-	74,  // 24: herdsman.daemon.v1.ResetEventsRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 25: herdsman.daemon.v1.ResetEventsResponse.version:type_name -> herdsman.core.v1.Version
-	74,  // 26: herdsman.daemon.v1.StatusRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 27: herdsman.daemon.v1.StatusResponse.version:type_name -> herdsman.core.v1.Version
-	32,  // 28: herdsman.daemon.v1.StatusResponse.daemon:type_name -> herdsman.daemon.v1.DaemonState
-	74,  // 29: herdsman.daemon.v1.StatusResponse.route:type_name -> herdsman.core.v1.RouteId
-	33,  // 30: herdsman.daemon.v1.StatusResponse.registry:type_name -> herdsman.daemon.v1.RegistryState
-	34,  // 31: herdsman.daemon.v1.StatusResponse.peers:type_name -> herdsman.daemon.v1.PeerInfo
-	35,  // 32: herdsman.daemon.v1.StatusResponse.boxes:type_name -> herdsman.daemon.v1.BoxCount
-	36,  // 33: herdsman.daemon.v1.StatusResponse.holds:type_name -> herdsman.daemon.v1.HoldInfo
-	77,  // 34: herdsman.daemon.v1.StatusResponse.messages:type_name -> herdsman.core.v1.MessageHeader
-	76,  // 35: herdsman.daemon.v1.PeerInfo.runtime:type_name -> herdsman.core.v1.RuntimeRef
-	74,  // 36: herdsman.daemon.v1.GetSetupRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 37: herdsman.daemon.v1.GetSetupResponse.version:type_name -> herdsman.core.v1.Version
-	39,  // 38: herdsman.daemon.v1.GetSetupResponse.inventory:type_name -> herdsman.daemon.v1.InventoryAgent
-	76,  // 39: herdsman.daemon.v1.InventoryAgent.runtime:type_name -> herdsman.core.v1.RuntimeRef
-	74,  // 40: herdsman.daemon.v1.PutSetupRequest.route:type_name -> herdsman.core.v1.RouteId
-	40,  // 41: herdsman.daemon.v1.PutSetupRequest.probes:type_name -> herdsman.daemon.v1.Probe
-	75,  // 42: herdsman.daemon.v1.PutSetupResponse.version:type_name -> herdsman.core.v1.Version
-	74,  // 43: herdsman.daemon.v1.EnrollRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 44: herdsman.daemon.v1.EnrollResponse.version:type_name -> herdsman.core.v1.Version
-	74,  // 45: herdsman.daemon.v1.ApprovePairRequest.route:type_name -> herdsman.core.v1.RouteId
-	71,  // 46: herdsman.daemon.v1.ApprovePairRequest.credentials:type_name -> herdsman.daemon.v1.ApprovePairRequest.CredentialsEntry
-	75,  // 47: herdsman.daemon.v1.ApprovePairResponse.version:type_name -> herdsman.core.v1.Version
-	47,  // 48: herdsman.daemon.v1.ApprovePairResponse.credentials:type_name -> herdsman.daemon.v1.ApprovedCredential
-	74,  // 49: herdsman.daemon.v1.RetirePairRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 50: herdsman.daemon.v1.RetirePairResponse.version:type_name -> herdsman.core.v1.Version
-	74,  // 51: herdsman.daemon.v1.RevokeCredentialRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 52: herdsman.daemon.v1.RevokeCredentialResponse.version:type_name -> herdsman.core.v1.Version
-	74,  // 53: herdsman.daemon.v1.SendRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 54: herdsman.daemon.v1.SendResponse.version:type_name -> herdsman.core.v1.Version
-	78,  // 55: herdsman.daemon.v1.SendResponse.id:type_name -> herdsman.core.v1.MessageId
-	74,  // 56: herdsman.daemon.v1.ClaimRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 57: herdsman.daemon.v1.ClaimResponse.version:type_name -> herdsman.core.v1.Version
-	56,  // 58: herdsman.daemon.v1.ClaimResponse.manifest:type_name -> herdsman.daemon.v1.ManifestEntry
-	78,  // 59: herdsman.daemon.v1.ManifestEntry.id:type_name -> herdsman.core.v1.MessageId
-	74,  // 60: herdsman.daemon.v1.AckRequest.route:type_name -> herdsman.core.v1.RouteId
-	78,  // 61: herdsman.daemon.v1.AckRequest.id:type_name -> herdsman.core.v1.MessageId
-	75,  // 62: herdsman.daemon.v1.AckResponse.version:type_name -> herdsman.core.v1.Version
-	78,  // 63: herdsman.daemon.v1.AckResponse.id:type_name -> herdsman.core.v1.MessageId
-	74,  // 64: herdsman.daemon.v1.ReleaseRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 65: herdsman.daemon.v1.ReleaseResponse.version:type_name -> herdsman.core.v1.Version
-	74,  // 66: herdsman.daemon.v1.HoldRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 67: herdsman.daemon.v1.HoldResponse.version:type_name -> herdsman.core.v1.Version
-	72,  // 68: herdsman.daemon.v1.HoldResponse.holds:type_name -> herdsman.daemon.v1.HoldResponse.HoldsEntry
-	74,  // 69: herdsman.daemon.v1.UnholdRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 70: herdsman.daemon.v1.UnholdResponse.version:type_name -> herdsman.core.v1.Version
-	73,  // 71: herdsman.daemon.v1.UnholdResponse.holds:type_name -> herdsman.daemon.v1.UnholdResponse.HoldsEntry
-	74,  // 72: herdsman.daemon.v1.AuthorityRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 73: herdsman.daemon.v1.AuthorityResponse.version:type_name -> herdsman.core.v1.Version
-	74,  // 74: herdsman.daemon.v1.WaitRequest.route:type_name -> herdsman.core.v1.RouteId
-	75,  // 75: herdsman.daemon.v1.WaitResponse.version:type_name -> herdsman.core.v1.Version
-	70,  // 76: herdsman.daemon.v1.WaitResponse.frames:type_name -> herdsman.daemon.v1.EventFrame
-	65,  // 77: herdsman.daemon.v1.HoldResponse.HoldsEntry.value:type_name -> herdsman.daemon.v1.HoldOwner
-	65,  // 78: herdsman.daemon.v1.UnholdResponse.HoldsEntry.value:type_name -> herdsman.daemon.v1.HoldOwner
-	10,  // 79: herdsman.daemon.v1.MessageService.Hello:input_type -> herdsman.daemon.v1.HelloRequest
-	13,  // 80: herdsman.daemon.v1.MessageService.Health:input_type -> herdsman.daemon.v1.HealthRequest
-	17,  // 81: herdsman.daemon.v1.MessageService.Shutdown:input_type -> herdsman.daemon.v1.ShutdownRequest
-	19,  // 82: herdsman.daemon.v1.MessageService.ListRoutes:input_type -> herdsman.daemon.v1.ListRoutesRequest
-	22,  // 83: herdsman.daemon.v1.MessageService.CreateRoute:input_type -> herdsman.daemon.v1.CreateRouteRequest
-	24,  // 84: herdsman.daemon.v1.MessageService.AdoptRoute:input_type -> herdsman.daemon.v1.AdoptRouteRequest
-	26,  // 85: herdsman.daemon.v1.MessageService.RemoveRoute:input_type -> herdsman.daemon.v1.RemoveRouteRequest
-	28,  // 86: herdsman.daemon.v1.MessageService.ResetEvents:input_type -> herdsman.daemon.v1.ResetEventsRequest
-	30,  // 87: herdsman.daemon.v1.MessageService.Status:input_type -> herdsman.daemon.v1.StatusRequest
-	37,  // 88: herdsman.daemon.v1.MessageService.GetSetup:input_type -> herdsman.daemon.v1.GetSetupRequest
-	41,  // 89: herdsman.daemon.v1.MessageService.PutSetup:input_type -> herdsman.daemon.v1.PutSetupRequest
-	43,  // 90: herdsman.daemon.v1.MessageService.Enroll:input_type -> herdsman.daemon.v1.EnrollRequest
-	45,  // 91: herdsman.daemon.v1.MessageService.ApprovePair:input_type -> herdsman.daemon.v1.ApprovePairRequest
-	48,  // 92: herdsman.daemon.v1.MessageService.RetirePair:input_type -> herdsman.daemon.v1.RetirePairRequest
-	50,  // 93: herdsman.daemon.v1.MessageService.RevokeCredential:input_type -> herdsman.daemon.v1.RevokeCredentialRequest
-	52,  // 94: herdsman.daemon.v1.MessageService.Send:input_type -> herdsman.daemon.v1.SendRequest
-	54,  // 95: herdsman.daemon.v1.MessageService.Claim:input_type -> herdsman.daemon.v1.ClaimRequest
-	57,  // 96: herdsman.daemon.v1.MessageService.Ack:input_type -> herdsman.daemon.v1.AckRequest
-	59,  // 97: herdsman.daemon.v1.MessageService.Release:input_type -> herdsman.daemon.v1.ReleaseRequest
-	61,  // 98: herdsman.daemon.v1.MessageService.Hold:input_type -> herdsman.daemon.v1.HoldRequest
-	63,  // 99: herdsman.daemon.v1.MessageService.Unhold:input_type -> herdsman.daemon.v1.UnholdRequest
-	66,  // 100: herdsman.daemon.v1.MessageService.Authority:input_type -> herdsman.daemon.v1.AuthorityRequest
-	2,   // 101: herdsman.daemon.v1.MessageService.DaemonStatus:input_type -> herdsman.daemon.v1.DaemonStatusRequest
-	4,   // 102: herdsman.daemon.v1.MessageService.ListOperations:input_type -> herdsman.daemon.v1.ListOperationsRequest
-	6,   // 103: herdsman.daemon.v1.MessageService.GetOperation:input_type -> herdsman.daemon.v1.GetOperationRequest
-	8,   // 104: herdsman.daemon.v1.MessageService.ResolveOperation:input_type -> herdsman.daemon.v1.ResolveOperationRequest
-	68,  // 105: herdsman.daemon.v1.MessageService.Wait:input_type -> herdsman.daemon.v1.WaitRequest
-	0,   // 106: herdsman.daemon.v1.MessageService.ResumeGoal:input_type -> herdsman.daemon.v1.ResumeGoalRequest
-	11,  // 107: herdsman.daemon.v1.MessageService.Hello:output_type -> herdsman.daemon.v1.HelloResponse
-	14,  // 108: herdsman.daemon.v1.MessageService.Health:output_type -> herdsman.daemon.v1.HealthResponse
-	18,  // 109: herdsman.daemon.v1.MessageService.Shutdown:output_type -> herdsman.daemon.v1.ShutdownResponse
-	20,  // 110: herdsman.daemon.v1.MessageService.ListRoutes:output_type -> herdsman.daemon.v1.ListRoutesResponse
-	23,  // 111: herdsman.daemon.v1.MessageService.CreateRoute:output_type -> herdsman.daemon.v1.CreateRouteResponse
-	25,  // 112: herdsman.daemon.v1.MessageService.AdoptRoute:output_type -> herdsman.daemon.v1.AdoptRouteResponse
-	27,  // 113: herdsman.daemon.v1.MessageService.RemoveRoute:output_type -> herdsman.daemon.v1.RemoveRouteResponse
-	29,  // 114: herdsman.daemon.v1.MessageService.ResetEvents:output_type -> herdsman.daemon.v1.ResetEventsResponse
-	31,  // 115: herdsman.daemon.v1.MessageService.Status:output_type -> herdsman.daemon.v1.StatusResponse
-	38,  // 116: herdsman.daemon.v1.MessageService.GetSetup:output_type -> herdsman.daemon.v1.GetSetupResponse
-	42,  // 117: herdsman.daemon.v1.MessageService.PutSetup:output_type -> herdsman.daemon.v1.PutSetupResponse
-	44,  // 118: herdsman.daemon.v1.MessageService.Enroll:output_type -> herdsman.daemon.v1.EnrollResponse
-	46,  // 119: herdsman.daemon.v1.MessageService.ApprovePair:output_type -> herdsman.daemon.v1.ApprovePairResponse
-	49,  // 120: herdsman.daemon.v1.MessageService.RetirePair:output_type -> herdsman.daemon.v1.RetirePairResponse
-	51,  // 121: herdsman.daemon.v1.MessageService.RevokeCredential:output_type -> herdsman.daemon.v1.RevokeCredentialResponse
-	53,  // 122: herdsman.daemon.v1.MessageService.Send:output_type -> herdsman.daemon.v1.SendResponse
-	55,  // 123: herdsman.daemon.v1.MessageService.Claim:output_type -> herdsman.daemon.v1.ClaimResponse
-	58,  // 124: herdsman.daemon.v1.MessageService.Ack:output_type -> herdsman.daemon.v1.AckResponse
-	60,  // 125: herdsman.daemon.v1.MessageService.Release:output_type -> herdsman.daemon.v1.ReleaseResponse
-	62,  // 126: herdsman.daemon.v1.MessageService.Hold:output_type -> herdsman.daemon.v1.HoldResponse
-	64,  // 127: herdsman.daemon.v1.MessageService.Unhold:output_type -> herdsman.daemon.v1.UnholdResponse
-	67,  // 128: herdsman.daemon.v1.MessageService.Authority:output_type -> herdsman.daemon.v1.AuthorityResponse
-	3,   // 129: herdsman.daemon.v1.MessageService.DaemonStatus:output_type -> herdsman.daemon.v1.DaemonStatusResponse
-	5,   // 130: herdsman.daemon.v1.MessageService.ListOperations:output_type -> herdsman.daemon.v1.ListOperationsResponse
-	7,   // 131: herdsman.daemon.v1.MessageService.GetOperation:output_type -> herdsman.daemon.v1.GetOperationResponse
-	9,   // 132: herdsman.daemon.v1.MessageService.ResolveOperation:output_type -> herdsman.daemon.v1.ResolveOperationResponse
-	69,  // 133: herdsman.daemon.v1.MessageService.Wait:output_type -> herdsman.daemon.v1.WaitResponse
-	1,   // 134: herdsman.daemon.v1.MessageService.ResumeGoal:output_type -> herdsman.daemon.v1.ResumeGoalResponse
-	107, // [107:135] is the sub-list for method output_type
-	79,  // [79:107] is the sub-list for method input_type
-	79,  // [79:79] is the sub-list for extension type_name
-	79,  // [79:79] is the sub-list for extension extendee
-	0,   // [0:79] is the sub-list for field type_name
+	77,  // 7: herdsman.daemon.v1.ResolveOperationResponse.plan:type_name -> herdsman.core.v1.Plan
+	75,  // 8: herdsman.daemon.v1.HelloResponse.version:type_name -> herdsman.core.v1.Version
+	75,  // 9: herdsman.daemon.v1.HealthResponse.version:type_name -> herdsman.core.v1.Version
+	15,  // 10: herdsman.daemon.v1.HealthResponse.routes:type_name -> herdsman.daemon.v1.RouteHealth
+	16,  // 11: herdsman.daemon.v1.HealthResponse.herdr:type_name -> herdsman.daemon.v1.HerdrHealth
+	74,  // 12: herdsman.daemon.v1.RouteHealth.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 13: herdsman.daemon.v1.ShutdownResponse.version:type_name -> herdsman.core.v1.Version
+	77,  // 14: herdsman.daemon.v1.ShutdownResponse.plan:type_name -> herdsman.core.v1.Plan
+	75,  // 15: herdsman.daemon.v1.ListRoutesResponse.version:type_name -> herdsman.core.v1.Version
+	21,  // 16: herdsman.daemon.v1.ListRoutesResponse.routes:type_name -> herdsman.daemon.v1.RouteInfo
+	74,  // 17: herdsman.daemon.v1.RouteInfo.route:type_name -> herdsman.core.v1.RouteId
+	74,  // 18: herdsman.daemon.v1.CreateRouteRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 19: herdsman.daemon.v1.CreateRouteResponse.version:type_name -> herdsman.core.v1.Version
+	74,  // 20: herdsman.daemon.v1.CreateRouteResponse.route:type_name -> herdsman.core.v1.RouteId
+	77,  // 21: herdsman.daemon.v1.CreateRouteResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 22: herdsman.daemon.v1.AdoptRouteRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 23: herdsman.daemon.v1.AdoptRouteResponse.version:type_name -> herdsman.core.v1.Version
+	74,  // 24: herdsman.daemon.v1.AdoptRouteResponse.route:type_name -> herdsman.core.v1.RouteId
+	77,  // 25: herdsman.daemon.v1.AdoptRouteResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 26: herdsman.daemon.v1.RemoveRouteRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 27: herdsman.daemon.v1.RemoveRouteResponse.version:type_name -> herdsman.core.v1.Version
+	77,  // 28: herdsman.daemon.v1.RemoveRouteResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 29: herdsman.daemon.v1.ResetEventsRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 30: herdsman.daemon.v1.ResetEventsResponse.version:type_name -> herdsman.core.v1.Version
+	77,  // 31: herdsman.daemon.v1.ResetEventsResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 32: herdsman.daemon.v1.StatusRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 33: herdsman.daemon.v1.StatusResponse.version:type_name -> herdsman.core.v1.Version
+	32,  // 34: herdsman.daemon.v1.StatusResponse.daemon:type_name -> herdsman.daemon.v1.DaemonState
+	74,  // 35: herdsman.daemon.v1.StatusResponse.route:type_name -> herdsman.core.v1.RouteId
+	33,  // 36: herdsman.daemon.v1.StatusResponse.registry:type_name -> herdsman.daemon.v1.RegistryState
+	34,  // 37: herdsman.daemon.v1.StatusResponse.peers:type_name -> herdsman.daemon.v1.PeerInfo
+	35,  // 38: herdsman.daemon.v1.StatusResponse.boxes:type_name -> herdsman.daemon.v1.BoxCount
+	36,  // 39: herdsman.daemon.v1.StatusResponse.holds:type_name -> herdsman.daemon.v1.HoldInfo
+	78,  // 40: herdsman.daemon.v1.StatusResponse.messages:type_name -> herdsman.core.v1.MessageHeader
+	76,  // 41: herdsman.daemon.v1.PeerInfo.runtime:type_name -> herdsman.core.v1.RuntimeRef
+	74,  // 42: herdsman.daemon.v1.GetSetupRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 43: herdsman.daemon.v1.GetSetupResponse.version:type_name -> herdsman.core.v1.Version
+	39,  // 44: herdsman.daemon.v1.GetSetupResponse.inventory:type_name -> herdsman.daemon.v1.InventoryAgent
+	76,  // 45: herdsman.daemon.v1.InventoryAgent.runtime:type_name -> herdsman.core.v1.RuntimeRef
+	74,  // 46: herdsman.daemon.v1.PutSetupRequest.route:type_name -> herdsman.core.v1.RouteId
+	40,  // 47: herdsman.daemon.v1.PutSetupRequest.probes:type_name -> herdsman.daemon.v1.Probe
+	75,  // 48: herdsman.daemon.v1.PutSetupResponse.version:type_name -> herdsman.core.v1.Version
+	77,  // 49: herdsman.daemon.v1.PutSetupResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 50: herdsman.daemon.v1.EnrollRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 51: herdsman.daemon.v1.EnrollResponse.version:type_name -> herdsman.core.v1.Version
+	77,  // 52: herdsman.daemon.v1.EnrollResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 53: herdsman.daemon.v1.ApprovePairRequest.route:type_name -> herdsman.core.v1.RouteId
+	71,  // 54: herdsman.daemon.v1.ApprovePairRequest.credentials:type_name -> herdsman.daemon.v1.ApprovePairRequest.CredentialsEntry
+	75,  // 55: herdsman.daemon.v1.ApprovePairResponse.version:type_name -> herdsman.core.v1.Version
+	47,  // 56: herdsman.daemon.v1.ApprovePairResponse.credentials:type_name -> herdsman.daemon.v1.ApprovedCredential
+	77,  // 57: herdsman.daemon.v1.ApprovePairResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 58: herdsman.daemon.v1.RetirePairRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 59: herdsman.daemon.v1.RetirePairResponse.version:type_name -> herdsman.core.v1.Version
+	77,  // 60: herdsman.daemon.v1.RetirePairResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 61: herdsman.daemon.v1.RevokeCredentialRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 62: herdsman.daemon.v1.RevokeCredentialResponse.version:type_name -> herdsman.core.v1.Version
+	77,  // 63: herdsman.daemon.v1.RevokeCredentialResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 64: herdsman.daemon.v1.SendRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 65: herdsman.daemon.v1.SendResponse.version:type_name -> herdsman.core.v1.Version
+	79,  // 66: herdsman.daemon.v1.SendResponse.id:type_name -> herdsman.core.v1.MessageId
+	77,  // 67: herdsman.daemon.v1.SendResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 68: herdsman.daemon.v1.ClaimRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 69: herdsman.daemon.v1.ClaimResponse.version:type_name -> herdsman.core.v1.Version
+	56,  // 70: herdsman.daemon.v1.ClaimResponse.manifest:type_name -> herdsman.daemon.v1.ManifestEntry
+	77,  // 71: herdsman.daemon.v1.ClaimResponse.plan:type_name -> herdsman.core.v1.Plan
+	79,  // 72: herdsman.daemon.v1.ManifestEntry.id:type_name -> herdsman.core.v1.MessageId
+	74,  // 73: herdsman.daemon.v1.AckRequest.route:type_name -> herdsman.core.v1.RouteId
+	79,  // 74: herdsman.daemon.v1.AckRequest.id:type_name -> herdsman.core.v1.MessageId
+	75,  // 75: herdsman.daemon.v1.AckResponse.version:type_name -> herdsman.core.v1.Version
+	79,  // 76: herdsman.daemon.v1.AckResponse.id:type_name -> herdsman.core.v1.MessageId
+	77,  // 77: herdsman.daemon.v1.AckResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 78: herdsman.daemon.v1.ReleaseRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 79: herdsman.daemon.v1.ReleaseResponse.version:type_name -> herdsman.core.v1.Version
+	77,  // 80: herdsman.daemon.v1.ReleaseResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 81: herdsman.daemon.v1.HoldRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 82: herdsman.daemon.v1.HoldResponse.version:type_name -> herdsman.core.v1.Version
+	72,  // 83: herdsman.daemon.v1.HoldResponse.holds:type_name -> herdsman.daemon.v1.HoldResponse.HoldsEntry
+	77,  // 84: herdsman.daemon.v1.HoldResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 85: herdsman.daemon.v1.UnholdRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 86: herdsman.daemon.v1.UnholdResponse.version:type_name -> herdsman.core.v1.Version
+	73,  // 87: herdsman.daemon.v1.UnholdResponse.holds:type_name -> herdsman.daemon.v1.UnholdResponse.HoldsEntry
+	77,  // 88: herdsman.daemon.v1.UnholdResponse.plan:type_name -> herdsman.core.v1.Plan
+	74,  // 89: herdsman.daemon.v1.AuthorityRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 90: herdsman.daemon.v1.AuthorityResponse.version:type_name -> herdsman.core.v1.Version
+	74,  // 91: herdsman.daemon.v1.WaitRequest.route:type_name -> herdsman.core.v1.RouteId
+	75,  // 92: herdsman.daemon.v1.WaitResponse.version:type_name -> herdsman.core.v1.Version
+	70,  // 93: herdsman.daemon.v1.WaitResponse.frames:type_name -> herdsman.daemon.v1.EventFrame
+	65,  // 94: herdsman.daemon.v1.HoldResponse.HoldsEntry.value:type_name -> herdsman.daemon.v1.HoldOwner
+	65,  // 95: herdsman.daemon.v1.UnholdResponse.HoldsEntry.value:type_name -> herdsman.daemon.v1.HoldOwner
+	10,  // 96: herdsman.daemon.v1.MessageService.Hello:input_type -> herdsman.daemon.v1.HelloRequest
+	13,  // 97: herdsman.daemon.v1.MessageService.Health:input_type -> herdsman.daemon.v1.HealthRequest
+	17,  // 98: herdsman.daemon.v1.MessageService.Shutdown:input_type -> herdsman.daemon.v1.ShutdownRequest
+	19,  // 99: herdsman.daemon.v1.MessageService.ListRoutes:input_type -> herdsman.daemon.v1.ListRoutesRequest
+	22,  // 100: herdsman.daemon.v1.MessageService.CreateRoute:input_type -> herdsman.daemon.v1.CreateRouteRequest
+	24,  // 101: herdsman.daemon.v1.MessageService.AdoptRoute:input_type -> herdsman.daemon.v1.AdoptRouteRequest
+	26,  // 102: herdsman.daemon.v1.MessageService.RemoveRoute:input_type -> herdsman.daemon.v1.RemoveRouteRequest
+	28,  // 103: herdsman.daemon.v1.MessageService.ResetEvents:input_type -> herdsman.daemon.v1.ResetEventsRequest
+	30,  // 104: herdsman.daemon.v1.MessageService.Status:input_type -> herdsman.daemon.v1.StatusRequest
+	37,  // 105: herdsman.daemon.v1.MessageService.GetSetup:input_type -> herdsman.daemon.v1.GetSetupRequest
+	41,  // 106: herdsman.daemon.v1.MessageService.PutSetup:input_type -> herdsman.daemon.v1.PutSetupRequest
+	43,  // 107: herdsman.daemon.v1.MessageService.Enroll:input_type -> herdsman.daemon.v1.EnrollRequest
+	45,  // 108: herdsman.daemon.v1.MessageService.ApprovePair:input_type -> herdsman.daemon.v1.ApprovePairRequest
+	48,  // 109: herdsman.daemon.v1.MessageService.RetirePair:input_type -> herdsman.daemon.v1.RetirePairRequest
+	50,  // 110: herdsman.daemon.v1.MessageService.RevokeCredential:input_type -> herdsman.daemon.v1.RevokeCredentialRequest
+	52,  // 111: herdsman.daemon.v1.MessageService.Send:input_type -> herdsman.daemon.v1.SendRequest
+	54,  // 112: herdsman.daemon.v1.MessageService.Claim:input_type -> herdsman.daemon.v1.ClaimRequest
+	57,  // 113: herdsman.daemon.v1.MessageService.Ack:input_type -> herdsman.daemon.v1.AckRequest
+	59,  // 114: herdsman.daemon.v1.MessageService.Release:input_type -> herdsman.daemon.v1.ReleaseRequest
+	61,  // 115: herdsman.daemon.v1.MessageService.Hold:input_type -> herdsman.daemon.v1.HoldRequest
+	63,  // 116: herdsman.daemon.v1.MessageService.Unhold:input_type -> herdsman.daemon.v1.UnholdRequest
+	66,  // 117: herdsman.daemon.v1.MessageService.Authority:input_type -> herdsman.daemon.v1.AuthorityRequest
+	2,   // 118: herdsman.daemon.v1.MessageService.DaemonStatus:input_type -> herdsman.daemon.v1.DaemonStatusRequest
+	4,   // 119: herdsman.daemon.v1.MessageService.ListOperations:input_type -> herdsman.daemon.v1.ListOperationsRequest
+	6,   // 120: herdsman.daemon.v1.MessageService.GetOperation:input_type -> herdsman.daemon.v1.GetOperationRequest
+	8,   // 121: herdsman.daemon.v1.MessageService.ResolveOperation:input_type -> herdsman.daemon.v1.ResolveOperationRequest
+	68,  // 122: herdsman.daemon.v1.MessageService.Wait:input_type -> herdsman.daemon.v1.WaitRequest
+	0,   // 123: herdsman.daemon.v1.MessageService.ResumeGoal:input_type -> herdsman.daemon.v1.ResumeGoalRequest
+	11,  // 124: herdsman.daemon.v1.MessageService.Hello:output_type -> herdsman.daemon.v1.HelloResponse
+	14,  // 125: herdsman.daemon.v1.MessageService.Health:output_type -> herdsman.daemon.v1.HealthResponse
+	18,  // 126: herdsman.daemon.v1.MessageService.Shutdown:output_type -> herdsman.daemon.v1.ShutdownResponse
+	20,  // 127: herdsman.daemon.v1.MessageService.ListRoutes:output_type -> herdsman.daemon.v1.ListRoutesResponse
+	23,  // 128: herdsman.daemon.v1.MessageService.CreateRoute:output_type -> herdsman.daemon.v1.CreateRouteResponse
+	25,  // 129: herdsman.daemon.v1.MessageService.AdoptRoute:output_type -> herdsman.daemon.v1.AdoptRouteResponse
+	27,  // 130: herdsman.daemon.v1.MessageService.RemoveRoute:output_type -> herdsman.daemon.v1.RemoveRouteResponse
+	29,  // 131: herdsman.daemon.v1.MessageService.ResetEvents:output_type -> herdsman.daemon.v1.ResetEventsResponse
+	31,  // 132: herdsman.daemon.v1.MessageService.Status:output_type -> herdsman.daemon.v1.StatusResponse
+	38,  // 133: herdsman.daemon.v1.MessageService.GetSetup:output_type -> herdsman.daemon.v1.GetSetupResponse
+	42,  // 134: herdsman.daemon.v1.MessageService.PutSetup:output_type -> herdsman.daemon.v1.PutSetupResponse
+	44,  // 135: herdsman.daemon.v1.MessageService.Enroll:output_type -> herdsman.daemon.v1.EnrollResponse
+	46,  // 136: herdsman.daemon.v1.MessageService.ApprovePair:output_type -> herdsman.daemon.v1.ApprovePairResponse
+	49,  // 137: herdsman.daemon.v1.MessageService.RetirePair:output_type -> herdsman.daemon.v1.RetirePairResponse
+	51,  // 138: herdsman.daemon.v1.MessageService.RevokeCredential:output_type -> herdsman.daemon.v1.RevokeCredentialResponse
+	53,  // 139: herdsman.daemon.v1.MessageService.Send:output_type -> herdsman.daemon.v1.SendResponse
+	55,  // 140: herdsman.daemon.v1.MessageService.Claim:output_type -> herdsman.daemon.v1.ClaimResponse
+	58,  // 141: herdsman.daemon.v1.MessageService.Ack:output_type -> herdsman.daemon.v1.AckResponse
+	60,  // 142: herdsman.daemon.v1.MessageService.Release:output_type -> herdsman.daemon.v1.ReleaseResponse
+	62,  // 143: herdsman.daemon.v1.MessageService.Hold:output_type -> herdsman.daemon.v1.HoldResponse
+	64,  // 144: herdsman.daemon.v1.MessageService.Unhold:output_type -> herdsman.daemon.v1.UnholdResponse
+	67,  // 145: herdsman.daemon.v1.MessageService.Authority:output_type -> herdsman.daemon.v1.AuthorityResponse
+	3,   // 146: herdsman.daemon.v1.MessageService.DaemonStatus:output_type -> herdsman.daemon.v1.DaemonStatusResponse
+	5,   // 147: herdsman.daemon.v1.MessageService.ListOperations:output_type -> herdsman.daemon.v1.ListOperationsResponse
+	7,   // 148: herdsman.daemon.v1.MessageService.GetOperation:output_type -> herdsman.daemon.v1.GetOperationResponse
+	9,   // 149: herdsman.daemon.v1.MessageService.ResolveOperation:output_type -> herdsman.daemon.v1.ResolveOperationResponse
+	69,  // 150: herdsman.daemon.v1.MessageService.Wait:output_type -> herdsman.daemon.v1.WaitResponse
+	1,   // 151: herdsman.daemon.v1.MessageService.ResumeGoal:output_type -> herdsman.daemon.v1.ResumeGoalResponse
+	124, // [124:152] is the sub-list for method output_type
+	96,  // [96:124] is the sub-list for method input_type
+	96,  // [96:96] is the sub-list for extension type_name
+	96,  // [96:96] is the sub-list for extension extendee
+	0,   // [0:96] is the sub-list for field type_name
 }
 
 func init() { file_herdsman_daemon_v1_message_proto_init() }

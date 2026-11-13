@@ -41,7 +41,6 @@ DOCS_INPUTS := $(CURDIR)/.tools/docs
 
 # Where proto-check regenerates the SDK to compare it; ignored by git, and
 # overwritten on each run. Contracts only grow, so no file there goes stale.
-PROTO_CHECK_DIR := $(CURDIR)/.tools/proto-check
 
 # need-tool stops with the step to run when a pinned tool is not installed.
 define need-tool
@@ -272,19 +271,21 @@ proto: proto-plugin
 	mv sdk/conformance/cli/testdata/spec.golden.json.new sdk/conformance/cli/testdata/spec.golden.json
 
 ## proto-check: lint, no breaking change, and generated code that matches the
-## contracts; the descriptor golden is compared by the cmd/herdsman tests
+## contracts, regenerated into a new directory each run so that nothing left
+## over can pass for fresh; the descriptor golden is compared by the
+## cmd/herdsman tests
 proto-check: proto-plugin
 	$(call need-tool,buf)
 	$(TOOLS_BIN)/buf lint
 	$(TOOLS_BIN)/buf breaking --against proto/baseline.binpb
-	@mkdir -p $(PROTO_CHECK_DIR)
-	@PATH="$(TOOLS_BIN):$$PATH" $(TOOLS_BIN)/buf generate -o $(PROTO_CHECK_DIR)
-	@cd $(PROTO_CHECK_DIR)/sdk && find . -name '*.pb.go' -o -path './ts/src/generated/*.ts' | sort > $(PROTO_CHECK_DIR)/fresh
-	@cd sdk && find . -name '*.pb.go' -o -path './ts/src/generated/*.ts' | sort > $(PROTO_CHECK_DIR)/committed
-	@diff $(PROTO_CHECK_DIR)/fresh $(PROTO_CHECK_DIR)/committed || { echo "generated files differ: run make proto"; exit 1; }
-	@while read -r file; do \
-		cmp "$(PROTO_CHECK_DIR)/sdk/$$file" "sdk/$$file" || { echo "$$file is stale: run make proto"; exit 1; }; \
-	done < $(PROTO_CHECK_DIR)/fresh
+	@dir="$$(mktemp -d)"; \
+	PATH="$(TOOLS_BIN):$$PATH" $(TOOLS_BIN)/buf generate -o "$$dir" || exit 1; \
+	(cd "$$dir/sdk" && find . -name '*.pb.go' -o -path './ts/src/generated/*.ts' | sort > "$$dir/fresh"); \
+	(cd sdk && find . -name '*.pb.go' -o -path './ts/src/generated/*.ts' | sort > "$$dir/committed"); \
+	diff "$$dir/fresh" "$$dir/committed" || { echo "generated files differ: run make proto"; exit 1; }; \
+	while read -r file; do \
+		cmp "$$dir/sdk/$$file" "sdk/$$file" || { echo "$$file is stale: run make proto"; exit 1; }; \
+	done < "$$dir/fresh"
 
 ## release-check: validate the goreleaser config
 release-check:

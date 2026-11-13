@@ -305,15 +305,14 @@ func directExec(t *testing.T, root string) []string {
 }
 
 // The packages that run git, each with the only files allowed to start a
-// process. gitrefs keeps its own call until its fallback moves onto this
-// helper.
+// process.
 var execRules = []struct {
 	dir     string
 	allowed []string
 }{
 	{dir: ".", allowed: []string{"run.go"}},
 	{dir: "../wtree"},
-	{dir: "../gitrefs", allowed: []string{"reftable_fallback.go"}},
+	{dir: "../gitrefs"},
 }
 
 func TestEveryGitCallGoesThroughTheHelper(t *testing.T) {
