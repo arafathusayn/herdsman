@@ -1,10 +1,12 @@
 package daemon
 
 import (
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
+	tracev1 "github.com/arafathusayn/herdsman/sdk/trace/v1"
 )
 
 // rpcProcedures lists every RPC method the daemon serves.
@@ -14,7 +16,8 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	routes := &routeService{d: d}
 	runtimes := &runtimeService{d: d}
 	projectContext := &projectContextService{}
-	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
+	suggestions := &suggestRPC{s: productionSuggest(func() store.Conn { return d.acctDB }), inspect: d.cfg.Inspect}
+	traces := &traceRPC{inspect: d.cfg.Inspect}
 	settings := &configRPC{inspect: d.cfg.Inspect}
 	records := &recordsRPC{d: d}
 	projects, tasks := projectRPC{records}, taskRPC{records}
@@ -96,6 +99,13 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(suggestv1.SuggestServiceName, "SourceRemove", suggestions.SourceRemove),
 		rpc.Unary(suggestv1.SuggestServiceName, "SourcePreview", suggestions.SourcePreview),
 		rpc.Unary(suggestv1.SuggestServiceName, "SourcePin", suggestions.SourcePin),
+		rpc.Unary(tracev1.TraceServiceName, "Get", traces.Get),
+		rpc.Unary(tracev1.TraceServiceName, "Export", traces.Export),
+		rpc.Unary(tracev1.TraceServiceName, "AddSpan", traces.AddSpan),
+		rpc.Unary(tracev1.TraceServiceName, "Evaluate", traces.Evaluate),
+		rpc.Unary(tracev1.TraceServiceName, "RecordRun", traces.RecordRun),
+		rpc.Unary(tracev1.TraceServiceName, "AddFinding", traces.AddFinding),
+		rpc.Unary(tracev1.TraceServiceName, "SetOutcome", traces.SetOutcome),
 		rpc.Unary(daemonv1.ProjectServiceName, "ContextInit", projectContext.ContextInit),
 		rpc.Unary(daemonv1.ProjectServiceName, "ContextCheck", projectContext.ContextCheck),
 		rpc.Unary(daemonv1.ProjectServiceName, "ContextNote", projectContext.ContextNote),

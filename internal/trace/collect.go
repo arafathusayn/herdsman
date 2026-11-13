@@ -34,6 +34,9 @@ type Sources struct {
 	HookLogs []string
 	// UsageFile is the measured usage log; "" leaves usage out.
 	UsageFile string
+	// ReadOnly writes nothing, not even the route's first identity: a route
+	// without one is named by a digest of its path.
+	ReadOnly bool
 }
 
 // measured is usage; a measure nothing reported is nil.
@@ -77,7 +80,7 @@ func Collect(sources Sources) (Trace, error) {
 	}
 	traceID := ""
 	if len(collected.spans) > 0 {
-		if traceID, err = routeIdentity(route); err != nil {
+		if traceID, err = identityOf(route, sources.ReadOnly); err != nil {
 			return Trace{}, fmt.Errorf("trace: route identity: %w", err)
 		}
 	}

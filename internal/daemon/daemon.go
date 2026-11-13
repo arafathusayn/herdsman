@@ -117,6 +117,7 @@ type Daemon struct {
 	opsCtx     context.Context
 	bg         sync.WaitGroup
 
+	turns   turnWatch       // agents seen working, for the route's trace
 	callers *route.Callers  // who asked for each route start
 	core    *coreRuntime    // herdr-core's launch socket and reconcilers
 	notices *notice.Service // the notices of herdr-core executions
@@ -491,6 +492,7 @@ func (d *Daemon) unwindStart() {
 func (d *Daemon) Serve(ctx context.Context) error {
 	if !d.cfg.Inspect {
 		go d.scheduler(ctx)
+		d.observeTurnsLater(ctx)
 		go d.tickNotices(ctx)
 		d.serveWorker()
 		d.startOpsRecovery(ctx)

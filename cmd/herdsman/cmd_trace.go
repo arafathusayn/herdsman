@@ -8,7 +8,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/arafathusayn/herdsman/internal/trace"
+	tracev1 "github.com/arafathusayn/herdsman/sdk/trace/v1"
 )
 
 const traceHelp = `usage: herdsman trace <route folder> [--json | --otlp <endpoint>] [--hook-logs <folder>]...
@@ -76,33 +76,57 @@ func runTrace(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "trace: %v\n", err)
 		return 1
 	}
-	route, err := trace.Collect(trace.Sources{Route: positional[0], HookLogs: hookLogs, UsageFile: usage})
+	routes, err := absolutePaths(append([]string{positional[0]}, hookLogs...))
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		fmt.Fprintf(stderr, "trace: %v\n", err)
 		return 1
 	}
-	if route.Skipped > 0 {
-		fmt.Fprintf(stderr, "trace: skipped %d unreadable records; the trace leaves them out\n", route.Skipped)
+	service, closeService, err := dialTrace()
+	if err != nil {
+		fmt.Fprintf(stderr, "trace: %v\n", err)
+		return 1
 	}
-	switch {
-	case *endpoint != "":
-		if err := trace.ExportOTLP(context.Background(), *endpoint, route); err != nil {
-			fmt.Fprintln(stderr, err)
+	defer closeService()
+	ctx := context.Background()
+	if *endpoint != "" {
+		res, err := service.Export(ctx, &tracev1.ExportRequest{Route: routes[0], HookLogs: routes[1:], UsageFile: usage, Endpoint: *endpoint})
+		if err != nil {
+			fmt.Fprintln(stderr, rpcText(err))
 			return 1
 		}
-		fmt.Fprintf(stdout, "exported %d spans\n", len(route.Spans))
-	case *asJSON:
+		warnSkipped(stderr, res.GetSkipped())
+		fmt.Fprintf(stdout, "exported %d spans\n", res.GetSpans())
+		return 0
+	}
+	res, err := service.Get(ctx, &tracev1.GetRequest{Route: routes[0], HookLogs: routes[1:], UsageFile: usage})
+	if err != nil {
+		fmt.Fprintln(stderr, rpcText(err))
+		return 1
+	}
+	route, err := traceFromProto(res.GetTrace())
+	if err != nil {
+		fmt.Fprintf(stderr, "trace: %v\n", err)
+		return 1
+	}
+	warnSkipped(stderr, route.Skipped)
+	if *asJSON {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
 		// The trace holds only strings, numbers and times.
 		_ = encoder.Encode(route)
-	default:
-		printTrace(stdout, route)
+		return 0
 	}
+	printTrace(stdout, route)
 	return 0
 }
 
-func printTrace(out io.Writer, route trace.Trace) {
+func warnSkipped(stderr io.Writer, skipped int32) {
+	if skipped > 0 {
+		fmt.Fprintf(stderr, "trace: skipped %d unreadable records; the trace leaves them out\n", skipped)
+	}
+}
+
+func printTrace(out io.Writer, route traceView) {
 	if len(route.Spans) == 0 {
 		fmt.Fprintln(out, "no spans recorded")
 		return
@@ -120,11 +144,11 @@ func runTraceAdd(args []string, stderr io.Writer) int {
 	const usageLine = "usage: herdsman trace add <route folder> --kind <kind> --name <name> [flags]"
 	flags := flag.NewFlagSet("trace add", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	span := trace.Span{}
-	flags.StringVar(&span.Kind, "kind", "", "check, turn, review, hook or command")
-	flags.StringVar(&span.Name, "name", "", "the span's name")
-	flags.StringVar(&span.Task, "task", "", "the task it belongs to")
-	flags.Float64Var(&span.DurationMS, "duration-ms", 0, "how long it took")
+	span := &tracev1.Span{}
+	kind := flags.String("kind", "", "check, turn, review, hook or command")
+	name := flags.String("name", "", "the span's name")
+	task := flags.String("task", "", "the task it belongs to")
+	duration := flags.Float64("duration-ms", 0, "how long it took")
 	start := flags.String("start", "", "when it began, RFC 3339 (default: duration before now)")
 	exit := flags.Int("exit", 0, "its exit code")
 	tokens := flags.Int64("tokens", 0, "tokens the harness reported")
@@ -137,26 +161,39 @@ func runTraceAdd(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, usageLine)
 		return 2
 	}
-	span.Start = time.Now().UTC().Add(-time.Duration(span.DurationMS * float64(time.Millisecond)))
+	begun := time.Now().UTC().Add(-time.Duration(*duration * float64(time.Millisecond)))
 	if *start != "" {
-		if span.Start, err = time.Parse(time.RFC3339Nano, *start); err != nil {
+		if begun, err = time.Parse(time.RFC3339Nano, *start); err != nil {
 			fmt.Fprintf(stderr, "trace add: --start: %v\n", err)
 			return 2
 		}
 	}
+	span.Kind, span.Name, span.Task, span.DurationMs, span.Start = *kind, *name, *task, *duration, begun.Format(time.RFC3339Nano)
 	// A flag left out stays unset: nothing reported differs from a reported zero.
 	flags.Visit(func(set *flag.Flag) {
 		switch set.Name {
 		case "exit":
-			span.Exit = exit
+			code := int32(*exit)
+			span.Exit = &code
 		case "tokens":
 			span.Tokens = tokens
 		case "cost-micros":
 			span.CostMicros = cost
 		}
 	})
-	if err := trace.Append(positional[0], span); err != nil {
+	routes, err := absolutePaths(positional)
+	if err != nil {
 		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	service, closeService, err := dialTrace()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer closeService()
+	if _, err := service.AddSpan(context.Background(), &tracev1.AddSpanRequest{Route: routes[0], Span: span}); err != nil {
+		fmt.Fprintln(stderr, rpcText(err))
 		return 1
 	}
 	return 0

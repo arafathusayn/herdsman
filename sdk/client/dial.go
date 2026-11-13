@@ -11,6 +11,8 @@ import (
 
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
+	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
+	tracev1 "github.com/arafathusayn/herdsman/sdk/trace/v1"
 )
 
 // base is the URL host of every call; the socket decides where it goes.
@@ -53,6 +55,8 @@ type Client struct {
 	Ledger  daemonv1.LedgerService
 	Route   daemonv1.RouteService
 	Project daemonv1.ProjectService
+	Suggest suggestv1.SuggestService
+	Trace   tracev1.TraceService
 	Task    daemonv1.TaskService
 	Runtime daemonv1.RuntimeService
 
@@ -111,6 +115,8 @@ func Dial(options Options) (*Client, error) {
 		Ledger:  daemonv1.NewLedgerServiceClient(hc, base),
 		Route:   daemonv1.NewRouteServiceClient(hc, base),
 		Project: daemonv1.NewProjectServiceClient(hc, base),
+		Suggest: suggestv1.NewSuggestServiceClient(hc, base),
+		Trace:   tracev1.NewTraceServiceClient(hc, base),
 		Task:    daemonv1.NewTaskServiceClient(hc, base),
 		Runtime: daemonv1.NewRuntimeServiceClient(hc, base),
 		http:    &http.Client{Transport: transport},

@@ -332,7 +332,7 @@ func PlanUp(q UpRequest) (*UpPlan, error) {
 		p.Text = text.String()
 		return p, nil
 	}
-	channelEnv := map[string]string{}
+	channelEnv := map[string]string{"HERDSMAN_ROUTE_FOLDER": p.Folder}
 	if !q.NoAdjutant {
 		channelEnv["HERDSMAN_INBOX"] = p.Inbox
 		channelEnv["HERDSMAN_PREFLIGHT"] = filepath.Join(p.Inbox, "setup.json")

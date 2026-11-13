@@ -138,7 +138,7 @@ func planCore(q UpRequest, p *UpPlan, coordinators []compiled, text *strings.Bui
 	add("create the route folder", effectFolder, "folder:"+p.Folder, ops.RetryIdempotent, with(func(d *stepData) {
 		d.Prompt, d.Config, d.Adjutant, d.Orchestrator = q.Prompt, q.ConfigPath, p.AdjutantName, p.OrchestratorName
 	}))
-	channelEnv := map[string]string{}
+	channelEnv := map[string]string{"HERDSMAN_ROUTE_FOLDER": p.Folder}
 	if !q.NoAdjutant {
 		base.Inbox = p.Inbox
 		// The pair's channel is the daemon's: the inbox is daemon-owned,

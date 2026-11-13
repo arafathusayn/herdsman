@@ -742,6 +742,18 @@ func applyContinue(ctx context.Context, deps Deps, c *herdr.Client, d stepData) 
 	return writeFileNew(sentStamp(d), nil)
 }
 
+// SocketOf returns the herdr socket of a journaled start.
+func SocketOf(op *ops.Operation) string {
+	if len(op.Steps) == 0 {
+		return ""
+	}
+	d, err := decode(op.Steps[0])
+	if err != nil {
+		return ""
+	}
+	return d.Socket
+}
+
 // RepoOf returns the repository of a journaled start.
 func RepoOf(op *ops.Operation) string {
 	if len(op.Steps) == 0 {

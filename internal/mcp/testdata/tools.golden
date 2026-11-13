@@ -2421,7 +2421,11 @@
     "description": "Calls herdsman.suggest.v1.SuggestService/Sources.",
     "inputSchema": {
       "additionalProperties": false,
-      "properties": {},
+      "properties": {
+        "dir": {
+          "type": "string"
+        }
+      },
       "type": "object"
     },
     "annotations": {

@@ -45,6 +45,12 @@ func TestMCPToolsAreExactlyWhatTheDaemonServes(t *testing.T) {
 	withheld := []string{"Set", "Unset", "New", "Go", "Submit", "Stream", "Shutdown", "Enroll", "ApprovePair", "RetirePair", "RevokeCredential", "ResetEvents", "Export", "Import", "Resources", "Plan", "AddResource", "TeardownPlans", "Teardown", "RegisterResource", "LedgerHealth", "NewWorktree",
 		"ContextInit", "ContextCheck", "ContextNote", "Log", "SetDefault", "Read"}
 	for _, procedure := range served {
+		if strings.Contains(procedure, "/herdsman.trace.v1.TraceService/") {
+			if slices.Contains(tools, procedure) {
+				t.Errorf("trace tool must not accept arbitrary filesystem paths: %s", procedure)
+			}
+			continue
+		}
 		if procedure == "/rpc/herdsman.daemon.v1.ProjectService/Delete" || procedure == "/rpc/herdsman.daemon.v1.TaskService/Delete" {
 			if slices.Contains(tools, procedure) {
 				t.Errorf("record deletion must remain a person-only action: %s", procedure)

@@ -297,18 +297,19 @@ func dispatch[Req, Resp any](ctx context.Context, data []byte, method func(conte
 
 // repository is everything one call needs about the repository around Dir.
 type repository struct {
-	git     *gitrun.Runner
-	state   *wtree.State
-	reader  *gitrefs.Reader
-	rows    []wtree.Row
-	main    string
-	common  string
-	dir     string
-	dflt    string
-	hooks   hooks.Config
-	naming  wtree.Naming
-	route   string
-	environ []string
+	git         *gitrun.Runner
+	state       *wtree.State
+	reader      *gitrefs.Reader
+	rows        []wtree.Row
+	main        string
+	common      string
+	dir         string
+	dflt        string
+	hooks       hooks.Config
+	naming      wtree.Naming
+	route       string
+	traceFolder string
+	environ     []string
 	// What setup.env and setup.share list, and setup.ports.
 	envFiles, shared     []string
 	shareSet, installSet bool
@@ -323,6 +324,9 @@ func (s *WorktreeService) open(ctx context.Context, dir string) (*repository, er
 		return nil, fmt.Errorf("worktree service: folder %q is not absolute", dir)
 	}
 	git := &gitrun.Runner{}
+	if folder := s.getenv(routeFolderEnv); folder != "" {
+		git.Tracer = gitrun.NewFileTrace(filepath.Join(folder, "logs"))
+	}
 	out, err := git.Run(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return nil, fmt.Errorf("%s is not inside a git repository: %w", dir, err)
@@ -340,7 +344,7 @@ func (s *WorktreeService) open(ctx context.Context, dir string) (*repository, er
 	if err != nil {
 		return nil, err
 	}
-	repo := &repository{git: git, state: state, reader: reader, common: common, dir: dir, route: s.getenv("HERDSMAN_ROUTE"), environ: s.caller}
+	repo := &repository{git: git, state: state, reader: reader, common: common, dir: dir, route: s.getenv("HERDSMAN_ROUTE"), environ: s.caller, traceFolder: s.getenv(routeFolderEnv)}
 	collector := wtree.Collector{Refs: reader, State: state, Git: git}
 	if repo.rows, err = collector.Skeleton(ctx); err != nil {
 		state.Close()
@@ -435,7 +439,12 @@ func (s *WorktreeService) plan(r *repository, hook string, vars wtree.Vars) (hoo
 }
 
 func (r *repository) runner(vars wtree.Vars, path string) *hooks.Runner {
-	return &hooks.Runner{LogDir: filepath.Join(r.common, wtree.StateFolder, "logs"), Dir: path, Environ: r.environ, Env: hooks.Env{
+	logs := filepath.Join(r.common, wtree.StateFolder, "logs")
+	// A hook run for a route is logged where that route's trace looks for it.
+	if folder := r.traceFolder; folder != "" {
+		logs = filepath.Join(folder, "logs", "hooks")
+	}
+	return &hooks.Runner{LogDir: logs, Dir: path, Environ: r.environ, Env: hooks.Env{
 		Task: vars.Values["task"], Branch: vars.Values["branch"], Worktree: path, Route: vars.Values["route"],
 	}}
 }

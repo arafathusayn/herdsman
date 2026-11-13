@@ -145,7 +145,11 @@ message PlanResponse {
   bool approved = 2;
 }
 
-message SourcesRequest {}
+message SourcesRequest {
+  // The folder whose repository configuration also counts; empty reads only
+  // the user's.
+  string dir = 1;
+}
 
 message SourcesResponse {
   repeated Pin sources = 1;

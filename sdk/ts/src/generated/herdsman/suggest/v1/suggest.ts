@@ -165,6 +165,11 @@ export interface PlanResponse {
 }
 
 export interface SourcesRequest {
+  /**
+   * The folder whose repository configuration also counts; empty reads only
+   * the user's.
+   */
+  dir?: string;
 }
 
 export interface SourcesResponse {

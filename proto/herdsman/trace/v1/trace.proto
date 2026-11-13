@@ -1,0 +1,194 @@
+syntax = "proto3";
+
+package herdsman.trace.v1;
+
+option go_package = "github.com/arafathusayn/herdsman/sdk/trace/v1;tracev1";
+
+// Span is one timed piece of a route. An absent exit, tokens or cost_micros
+// means nothing reported it, which differs from a reported zero.
+message Span {
+  string trace_id = 1;
+  string span_id = 2;
+  string parent_id = 3;
+  string kind = 4;
+  string name = 5;
+  string task = 6;
+  // RFC 3339 with nanoseconds.
+  string start = 7;
+  double duration_ms = 8;
+  optional int32 exit = 9;
+  optional int64 tokens = 10;
+  optional int64 cost_micros = 11;
+  string args = 12;
+  bool start_approximate = 13;
+}
+
+// RouteTrace is one route's spans, the root first.
+message RouteTrace {
+  string version = 1;
+  string route = 2;
+  string trace_id = 3;
+  repeated Span spans = 4;
+  int32 skipped = 5;
+}
+
+message GetRequest {
+  // The route's folder, as an absolute path.
+  string route = 1;
+  repeated string hook_logs = 2;
+  string usage_file = 3;
+}
+
+message GetResponse {
+  RouteTrace trace = 1;
+}
+
+message ExportRequest {
+  string route = 1;
+  repeated string hook_logs = 2;
+  string usage_file = 3;
+  string endpoint = 4;
+}
+
+message ExportResponse {
+  int32 spans = 1;
+  int32 skipped = 2;
+}
+
+message AddSpanRequest {
+  string route = 1;
+  Span span = 2;
+}
+
+message AddSpanResponse {}
+
+// Interval is a 95% confidence interval.
+message Interval {
+  double low = 1;
+  double high = 2;
+}
+
+message ArmReport {
+  string arm = 1;
+  int32 runs = 2;
+  int32 passed = 3;
+  Interval pass_rate = 4;
+  Interval duration_ms = 5;
+  int32 cost_runs = 6;
+  Interval cost_micros = 7;
+}
+
+// ControlReport is an arm's A/A band.
+message ControlReport {
+  string arm = 1;
+  int32 runs_a = 2;
+  int32 runs_b = 3;
+  Interval pass_rate_difference = 4;
+  Interval duration_ms_difference = 5;
+  Interval cost_micros_difference = 6;
+}
+
+message ReviewerCounts {
+  string reviewer = 1;
+  int32 recorded = 2;
+  int32 open = 3;
+  int32 accepted = 4;
+  int32 fixed = 5;
+  int32 dismissed = 6;
+}
+
+message FindingCounts {
+  int32 recorded = 1;
+  int32 labeled = 2;
+  int32 open = 3;
+  repeated ReviewerCounts reviewers = 4;
+}
+
+// RankDecision says why no ranking was produced.
+message RankDecision {
+  bool refused = 1;
+  bool labeled_set = 2;
+  string reason = 3;
+}
+
+message EvalReport {
+  string version = 1;
+  string experimental = 2;
+  string suite = 3;
+  repeated ArmReport arms = 4;
+  repeated ControlReport controls = 5;
+  FindingCounts findings = 6;
+  RankDecision rank = 7;
+  int32 skipped = 8;
+}
+
+message EvaluateRequest {
+  // The suite's folder, as an absolute path.
+  string suite = 1;
+  repeated string finding_routes = 2;
+  bool rank = 3;
+}
+
+message EvaluateResponse {
+  EvalReport report = 1;
+  // What could not be read and was left out.
+  repeated string warnings = 2;
+}
+
+// Run is one recorded run of a suite's task. control is empty, "a" or "b".
+message Run {
+  string task = 1;
+  string arm = 2;
+  string control = 3;
+  bool pass = 4;
+  double duration_ms = 5;
+  optional int64 cost_micros = 6;
+}
+
+message RecordRunRequest {
+  string suite = 1;
+  Run run = 2;
+}
+
+message RecordRunResponse {}
+
+message Finding {
+  string id = 1;
+  string reviewer = 2;
+  string severity = 3;
+  string task = 4;
+  string head = 5;
+  string file = 6;
+  int32 line = 7;
+  string title = 8;
+}
+
+message AddFindingRequest {
+  string route = 1;
+  Finding finding = 2;
+}
+
+message AddFindingResponse {
+  string id = 1;
+}
+
+message SetOutcomeRequest {
+  string route = 1;
+  string id = 2;
+  // accepted, fixed or dismissed.
+  string outcome = 3;
+}
+
+message SetOutcomeResponse {}
+
+// TraceService reads and records what routes did. It has no method that runs
+// a suite: a suite's commands run in the command line's own process.
+service TraceService {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Export(ExportRequest) returns (ExportResponse);
+  rpc AddSpan(AddSpanRequest) returns (AddSpanResponse);
+  rpc Evaluate(EvaluateRequest) returns (EvaluateResponse);
+  rpc RecordRun(RecordRunRequest) returns (RecordRunResponse);
+  rpc AddFinding(AddFindingRequest) returns (AddFindingResponse);
+  rpc SetOutcome(SetOutcomeRequest) returns (SetOutcomeResponse);
+}

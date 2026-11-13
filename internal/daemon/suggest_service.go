@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -18,6 +17,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/approvals"
 	"github.com/arafathusayn/herdsman/internal/hooks"
 	"github.com/arafathusayn/herdsman/internal/suggest"
+	"github.com/arafathusayn/herdsman/sdk/config"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 	suggestv1 "github.com/arafathusayn/herdsman/sdk/suggest/v1"
 )
@@ -39,6 +39,8 @@ type SuggestService struct {
 	Home       string                  // Empty uses the user's home folder.
 	Harnesses  []string                // Empty looks the known harnesses up on PATH.
 	ContextDir func(dir string) string // The project's context repo; "" or nil means none.
+	// Labels gives the labels of the project dir belongs to; nil means none.
+	Labels func(dir string) []string
 
 	pinsMu     sync.Mutex // Held from reading the pins to storing them.
 	remoteOnce sync.Once
@@ -120,7 +122,9 @@ type SuggestPlanResponse struct {
 }
 
 // SuggestSourcesRequest asks for the remote catalogs.
-type SuggestSourcesRequest struct{}
+type SuggestSourcesRequest struct {
+	Dir string `json:"dir,omitempty"`
+}
 
 // SuggestSourcesResponse lists the pinned remote catalogs.
 type SuggestSourcesResponse struct {
@@ -167,39 +171,9 @@ type SuggestSourcePinResponse struct {
 	Pin suggest.Pin `json:"pin"`
 }
 
-// SuggestCall serves one verb for the command line in this process.
-func SuggestCall(ctx context.Context, method string, request []byte) ([]byte, error) {
-	return (&SuggestService{}).Call(ctx, method, request)
-}
-
 // SuggestRun applies a recipe for the command line in this process.
 func SuggestRun(ctx context.Context, dir, id string, t suggest.Terminal) error {
-	return (&SuggestService{}).Run(ctx, dir, id, t)
-}
-
-// Call decodes a request, runs the method and encodes its response.
-func (s *SuggestService) Call(ctx context.Context, method string, request []byte) ([]byte, error) {
-	switch method {
-	case "Search":
-		return dispatch(ctx, request, s.Search)
-	case "Get":
-		return dispatch(ctx, request, s.Get)
-	case "Add":
-		return dispatch(ctx, request, s.Add)
-	case "Plan":
-		return dispatch(ctx, request, s.Plan)
-	case "Sources":
-		return dispatch(ctx, request, s.Sources)
-	case "SourceAdd":
-		return dispatch(ctx, request, s.SourceAdd)
-	case "SourceRemove":
-		return dispatch(ctx, request, s.SourceRemove)
-	case "SourcePreview":
-		return dispatch(ctx, request, s.SourcePreview)
-	case "SourcePin":
-		return dispatch(ctx, request, s.SourcePin)
-	}
-	return nil, fmt.Errorf("suggest service: no method %q", method)
+	return productionSuggest(nil).Run(ctx, dir, id, t)
 }
 
 func (s *SuggestService) folder(field, env, fallback string) string {
@@ -248,7 +222,7 @@ func (s *SuggestService) contextDir(dir string) string {
 }
 
 func (s *SuggestService) load(ctx context.Context, dir string) (suggest.Catalog, error) {
-	pins, err := s.pins()
+	pins, err := s.pins(dir)
 	if err != nil {
 		return suggest.Catalog{}, err
 	}
@@ -413,15 +387,16 @@ func (s *SuggestService) Add(_ context.Context, r SuggestAddRequest) (SuggestAdd
 	return SuggestAddResponse{ID: id, Path: path}, err
 }
 
-func (s *SuggestService) pins() ([]suggest.Pin, error) {
+// legacyPins reads the file pins were kept in before the configuration held them.
+func (s *SuggestService) legacyPins() ([]suggest.Pin, error) {
 	data, err := os.ReadFile(s.sourcesPath())
 	if errors.Is(err, fs.ErrNotExist) {
-		return []suggest.Pin{}, nil
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	pins := []suggest.Pin{}
+	var pins []suggest.Pin
 	for _, line := range strings.Fields(string(data)) {
 		pin, err := suggest.ParsePin(line)
 		if err != nil {
@@ -434,36 +409,155 @@ func (s *SuggestService) pins() ([]suggest.Pin, error) {
 	return pins, nil
 }
 
-// writeSuggestPins is replaced only by the test of a failed write.
-var writeSuggestPins = io.WriteString
+// userConfigFolder is where the user's configuration file lives.
+func (s *SuggestService) userConfigFolder() string {
+	if s.ConfigDir != "" {
+		return s.configDir()
+	}
+	return config.UserDir(os.Environ())
+}
 
+// parseConfiguredPins reads [suggest].sources. A bad entry is the machine's
+// fault, as in legacyPins, so its error type does not blame the request.
+func parseConfiguredPins(sources []string) ([]suggest.Pin, error) {
+	pins := make([]suggest.Pin, 0, len(sources))
+	for _, source := range sources {
+		pin, err := suggest.ParsePin(source)
+		if err != nil {
+			return nil, fmt.Errorf("suggest.sources: %s", err)
+		}
+		pins = append(pins, pin)
+	}
+	return pins, nil
+}
+
+// mergePins keeps the first pin of each address, so the stronger source wins.
+func mergePins(groups ...[]suggest.Pin) []suggest.Pin {
+	merged := []suggest.Pin{}
+	for _, group := range groups {
+		for _, pin := range group {
+			if indexOfPin(merged, pin.URL) < 0 {
+				merged = append(merged, pin)
+			}
+		}
+	}
+	return merged
+}
+
+// repositoryRoot walks up from dir to the folder holding .git; "" when none.
+func repositoryRoot(dir string) string {
+	if !filepath.IsAbs(dir) {
+		return ""
+	}
+	for at := filepath.Clean(dir); ; at = filepath.Dir(at) {
+		if _, err := os.Lstat(filepath.Join(at, ".git")); err == nil {
+			return at
+		}
+		if at == filepath.Dir(at) {
+			return ""
+		}
+	}
+}
+
+// pins are the effective remote catalogs for dir: the configuration in its
+// usual precedence, then any left in the older file.
+func (s *SuggestService) pins(dir string) ([]suggest.Pin, error) {
+	result, err := config.Load(config.Options{RepoRoot: repositoryRoot(dir), UserDir: s.userConfigFolder()})
+	if err != nil {
+		return nil, err
+	}
+	configured, err := parseConfiguredPins(result.Config.GetSuggest().GetSources())
+	if err != nil {
+		return nil, err
+	}
+	legacy, err := s.legacyPins()
+	if err != nil {
+		return nil, err
+	}
+	return mergePins(configured, legacy), nil
+}
+
+// userFile is the user's configuration file, the one a change to the pins goes
+// to: the existing file in whatever format it has, or a new TOML file.
+func (s *SuggestService) userFile() (string, error) {
+	result, err := config.Load(config.Options{UserDir: s.userConfigFolder()})
+	if err != nil {
+		return "", err
+	}
+	if result.UserPath != "" {
+		return result.UserPath, nil
+	}
+	return filepath.Join(s.userConfigFolder(), "config.toml"), nil
+}
+
+// readUserConfig is replaced only by the test of a file that changes while it
+// is being read.
+var readUserConfig = config.ReadFile
+
+// changeablePins are the pins a person can change from here: their own file's
+// and the older file's. A repository's pins change by editing that repository.
+func (s *SuggestService) changeablePins() ([]suggest.Pin, error) {
+	path, err := s.userFile()
+	if err != nil {
+		return nil, err
+	}
+	var own []suggest.Pin
+	if _, statErr := os.Stat(path); statErr == nil {
+		result, err := readUserConfig(path)
+		if err != nil {
+			return nil, err
+		}
+		if own, err = parseConfiguredPins(result.Config.GetSuggest().GetSources()); err != nil {
+			return nil, err
+		}
+	}
+	legacy, err := s.legacyPins()
+	if err != nil {
+		return nil, err
+	}
+	return mergePins(own, legacy), nil
+}
+
+// storePins writes the pins to the user's configuration and only then retires
+// the older file, so a failure leaves every pin where it was.
 func (s *SuggestService) storePins(pins []suggest.Pin) error {
-	path := s.sourcesPath()
+	path, err := s.userFile()
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	var b strings.Builder
+	if _, statErr := os.Stat(path); errors.Is(statErr, fs.ErrNotExist) {
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			return err
+		}
+	}
+	texts := make([]string, 0, len(pins))
 	for _, pin := range pins {
-		b.WriteString(pin.String() + "\n")
+		// The configuration's text form of a list is comma separated.
+		if strings.Contains(pin.String(), ",") {
+			return refuseSuggest(rpc.InvalidArgument, "the address %s has a comma, which a configured source cannot hold", pin.URL)
+		}
+		texts = append(texts, pin.String())
 	}
-	temp, err := os.CreateTemp(filepath.Dir(path), ".suggest-sources-*")
+	if len(texts) == 0 {
+		_, err = config.UnsetFile(path, sourcesKey)
+	} else {
+		err = config.SetFile(path, sourcesKey, strings.Join(texts, ","))
+	}
 	if err != nil {
 		return err
 	}
-	defer os.Remove(temp.Name())
-	_, err = writeSuggestPins(temp, b.String())
-	if closeErr := temp.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
+	if err := os.Remove(s.sourcesPath()); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	return os.Rename(temp.Name(), path)
+	return nil
 }
 
 // Sources lists the remote catalogs with their pins.
-func (s *SuggestService) Sources(context.Context, SuggestSourcesRequest) (SuggestSourcesResponse, error) {
-	pins, err := s.pins()
+func (s *SuggestService) Sources(_ context.Context, r SuggestSourcesRequest) (SuggestSourcesResponse, error) {
+	pins, err := s.pins(r.Dir)
 	return SuggestSourcesResponse{Sources: pins}, err
 }
 
@@ -476,7 +570,7 @@ func indexOfPin(pins []suggest.Pin, url string) int {
 func (s *SuggestService) changePins(change func([]suggest.Pin) ([]suggest.Pin, error)) error {
 	s.pinsMu.Lock()
 	defer s.pinsMu.Unlock()
-	pins, err := s.pins()
+	pins, err := s.changeablePins()
 	if err != nil {
 		return err
 	}
@@ -503,7 +597,7 @@ func findPin(pins []suggest.Pin, url string) (int, error) {
 // The fetch can be slow, so it happens outside the unit that stores the pin,
 // which checks for the source again.
 func (s *SuggestService) SourceAdd(ctx context.Context, r SuggestSourceAddRequest) (SuggestSourceAddResponse, error) {
-	pins, err := s.pins()
+	pins, err := s.changeablePins()
 	if err != nil {
 		return SuggestSourceAddResponse{}, err
 	}
@@ -540,7 +634,7 @@ func (s *SuggestService) SourceRemove(_ context.Context, r SuggestSourceRemoveRe
 
 // SourcePreview fetches and returns the entry diff. The pin does not move.
 func (s *SuggestService) SourcePreview(ctx context.Context, r SuggestSourcePreviewRequest) (suggest.Update, error) {
-	pins, err := s.pins()
+	pins, err := s.changeablePins()
 	if err != nil {
 		return suggest.Update{}, err
 	}
@@ -585,8 +679,7 @@ var ecosystemFiles = []struct{ file, ecosystem string }{
 	{"pyproject.toml", "python"},
 }
 
-// machine detects what the ranking depends on. The project's labels and recent
-// events stay empty until projects have a record to read them from.
+// machine detects what the ranking depends on.
 func (s *SuggestService) machine(dir string) suggest.Machine {
 	m := suggest.Machine{Platform: runtime.GOOS, Harnesses: s.Harnesses}
 	if len(m.Harnesses) == 0 {
@@ -604,6 +697,12 @@ func (s *SuggestService) machine(dir string) suggest.Machine {
 		}
 	}
 	m.Installed = s.installed()
+	if s.Labels != nil {
+		m.Labels = s.Labels(dir)
+	}
+	if root := s.contextDir(dir); root != "" {
+		m.RecentEvents = recentEventKinds(root)
+	}
 	return m
 }
 
@@ -649,6 +748,11 @@ func (r *suggestRPC) refuseInInspect(method string) error {
 }
 
 var _ suggestv1.SuggestService = (*suggestRPC)(nil)
+
+// NewSuggestService returns the catalog service for a caller in this process.
+func NewSuggestService() suggestv1.SuggestService {
+	return &suggestRPC{s: productionSuggest(nil)}
+}
 
 // suggestFailure is how a failed call is served. The caller's own deadline or
 // cancellation wins over whatever it caused.
@@ -764,8 +868,8 @@ func (r *suggestRPC) Plan(ctx context.Context, req *suggestv1.PlanRequest) (*sug
 }
 
 // Sources serves the remote catalogs with their pins.
-func (r *suggestRPC) Sources(ctx context.Context, _ *suggestv1.SourcesRequest) (*suggestv1.SourcesResponse, error) {
-	listed, err := r.s.Sources(ctx, SuggestSourcesRequest{})
+func (r *suggestRPC) Sources(ctx context.Context, req *suggestv1.SourcesRequest) (*suggestv1.SourcesResponse, error) {
+	listed, err := r.s.Sources(ctx, SuggestSourcesRequest{Dir: req.GetDir()})
 	if err != nil {
 		return nil, suggestFailure(ctx, err)
 	}
