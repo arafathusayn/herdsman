@@ -107,7 +107,7 @@ Lanes come from `lanes(members)` in `shared/state.ts`.
 ## Reactre core + built-in signals
 
 `apps/reactre-signals` uses `@reactre/core` and its built-in `signal`, from
-upstream revision `8bae29b9fce00ab1e192f906e15191c6057550d7`. See its
+upstream revision `f0cb6cb9f7d9c9a96c25fb25ece2d54adb702c27`. See its
 [source and reproduction notes](apps/reactre-signals/README.md).
 Each fresh snapshot is written to a signal. It shares the exact view components,
 keyed projections and core compiler with the combined core + state entry below.

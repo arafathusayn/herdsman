@@ -1,5 +1,4 @@
 import { For, Match, memo, selector, Show, Switch } from "@reactre/core";
-import { memo as equalMemo } from "@reactre/core/features/memo";
 
 import {
   checkKey,
@@ -12,7 +11,7 @@ import {
   type Member,
   type State,
 } from "../state.ts";
-import { rows } from "./rows.ts";
+import { cachedKey, rows, stableList } from "./rows.ts";
 
 function cardTask(task: string | null) {
   return task === null ? null : <div class="card-task">{task}</div>;
@@ -27,17 +26,22 @@ function Team(props: {
   const members = rows(
     () => props.members,
     (member) => member.pane,
+    (a, b) =>
+      a.pane === b.pane &&
+      a.title === b.title &&
+      a.role === b.role &&
+      a.status === b.status &&
+      a.task === b.task &&
+      a.sub === b.sub &&
+      a.tab === b.tab &&
+      a.term === b.term,
   );
   const groups = memo(() => lanes([...members()]));
   // Columns are stable read-only projections. A card move only wakes the
   // affected lists and counts; unchanged columns do not touch the DOM.
   const columns = statusOrder.map((status) => {
-    const items = equalMemo(
+    const items = stableList(
       () => groups().find((lane) => lane.status === status)?.members ?? [],
-      {
-        equals: (a, b) =>
-          a.length === b.length && a.every((member, i) => member === b[i]),
-      },
     );
     return {
       status,
@@ -46,7 +50,7 @@ function Team(props: {
       count: memo(() => items().length),
     };
   });
-  const shown = memo(() => {
+  const shown = stableList(() => {
     const active = groups();
     return columns.filter((column) =>
       active.some((lane) => lane.status === column.status),
@@ -66,11 +70,7 @@ function Team(props: {
                 {column.label}
                 <span class="count">{column.count()}</span>
               </h2>
-              <For
-                each={column.members()}
-                key={(m) => m.pane}
-                fallback={<p class="lane-empty">None</p>}
-              >
+              <For each={column.members()} key={(m) => m.pane}>
                 {(m) => (
                   <button
                     class={`card r-${m.role} s-${m.status}${selected(m.pane) ? " selected" : ""}`}
@@ -97,6 +97,7 @@ function Team(props: {
                   </button>
                 )}
               </For>
+              {column.count() === 0 ? <p class="lane-empty">None</p> : null}
             </section>
           )}
         </For>
@@ -157,10 +158,24 @@ function eventBody(e: Event, statusText: string) {
 }
 
 function Activity(props: { state: ViewState }) {
-  const items = rows(() => props.state.events, eventKey);
+  const key = cachedKey(eventKey);
+  const items = rows(
+    () => props.state.events,
+    eventKey,
+    (a, b) =>
+      a.at === b.at &&
+      a.clock === b.clock &&
+      a.source === b.source &&
+      a.kind === b.kind &&
+      a.label === b.label &&
+      a.pane === b.pane &&
+      a.who === b.who &&
+      a.status === b.status &&
+      a.text === b.text,
+  );
   return (
     <ol class="timeline activity">
-      <For each={items()} key={eventKey}>
+      <For each={items()} key={key}>
         {(e) => (
           <li class={e.source}>
             <time datetime={e.at}>{e.clock}</time>
@@ -173,7 +188,15 @@ function Activity(props: { state: ViewState }) {
 }
 
 function Checklist(props: { state: ViewState }) {
-  const items = rows(() => props.state.checklist, checkKey);
+  const items = rows(
+    () => props.state.checklist,
+    checkKey,
+    (a, b) =>
+      a.id === b.id &&
+      a.text === b.text &&
+      a.done === b.done &&
+      a.skipped === b.skipped,
+  );
   return (
     <ul class="checklist">
       <For each={items()} key={checkKey}>
@@ -199,11 +222,22 @@ function Checklist(props: { state: ViewState }) {
 }
 
 function Log(props: { state: ViewState }) {
+  // Plain prefix reads let the compiler fill a static class hole. A method call
+  // here is conservatively reactive and allocates an observer for every line.
   return (
     <ol class="timeline">
       <For each={props.state.log} key={lineKey}>
         {(l) => (
-          <li class={l.text.startsWith("web:") ? "web" : ""}>
+          <li
+            class={
+              l.text[0] === "w" &&
+              l.text[1] === "e" &&
+              l.text[2] === "b" &&
+              l.text[3] === ":"
+                ? "web"
+                : ""
+            }
+          >
             <time>{l.time}</time>
             <p>{l.text}</p>
           </li>

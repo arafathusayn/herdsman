@@ -83,6 +83,18 @@ for (const [name, createApp] of [
       const card = () => elements().find((el) => el.getAttribute("data-pane") === member.pane)!;
       expect(card().textContent).toContain("Changed title");
       expect(card().textContent).toContain("A newly present task");
+      const retained = card();
+      member.role = "reviewer";
+      member.sub = "Updated subtitle";
+      member.tab = "Updated terminal tab";
+      member.term = "Updated terminal title";
+      app.render(world.snapshot());
+      expect(card()).toBe(retained);
+      expect(card().className).toContain("r-reviewer");
+      expect(card().textContent).toContain("Updated subtitle");
+      expect(card().textContent).toContain("Updated terminal tab");
+      expect(card().textContent).toContain("Updated terminal title");
+      expect(elements().find((el) => el.getAttribute("title") === member.term)).toBeDefined();
       member.task = null;
       world.s.selected = member.pane;
       app.render(world.snapshot());
@@ -98,12 +110,102 @@ for (const [name, createApp] of [
     expect(root.textContent).toBe("");
   });
 
+  test(`benchmark ${name} updates empty lanes and disposes removed optional lanes`, () => {
+    const root = document.createElement("main");
+    const app = createApp(root, () => {});
+    const world = new World();
+    const member = { ...world.s.members[0]!, status: "gone" as const };
+    const elements = () => all(root as unknown as FakeElement);
+    const sections = () => elements().filter((el) => el.getAttribute("aria-label") === "Pane gone");
+    try {
+      world.s.members = [];
+      app.render(world.snapshot());
+      expect(elements().filter((el) => el.className === "lane-empty")).toHaveLength(4);
+      world.s.members = [member];
+      app.render(world.snapshot());
+      expect(sections()).toHaveLength(1);
+      const lane = sections()[0];
+      member.title = "Changed in the same lane";
+      app.render(world.snapshot());
+      expect(sections()[0]).toBe(lane);
+      expect(root.textContent).toContain(member.title);
+      world.s.members = [];
+      app.render(world.snapshot());
+      expect(sections()).toHaveLength(0);
+      expect(elements().filter((el) => el.className === "lane-empty")).toHaveLength(4);
+    } finally {
+      app.dispose();
+    }
+  });
+
+  test(`benchmark ${name} keeps checklist fields live and reloads a disposed tab`, () => {
+    const root = document.createElement("main");
+    const app = createApp(root, () => {});
+    const world = new World();
+    world.s.tab = "checklist";
+    world.s.checklist = [{ id: "C1", text: "Original", done: false, skipped: false }];
+    const boxes = () => all(root as unknown as FakeElement).filter((el) => el.className === "box");
+    try {
+      app.render(world.snapshot());
+      const box = boxes()[0];
+      world.s.checklist[0]!.text = "Changed with the same key";
+      world.s.checklist[0]!.skipped = true;
+      app.render(world.snapshot());
+      expect(boxes()[0]).toBe(box);
+      expect(boxes()[0]?.getAttribute("aria-label")).toBe("Not applicable");
+      expect(root.textContent).toContain("Changed with the same key");
+      world.s.checklist[0]!.done = true;
+      app.render(world.snapshot());
+      expect(boxes()[0]?.getAttribute("aria-label")).toBe("Done");
+      world.s.tab = "team";
+      app.render(world.snapshot());
+      world.s.checklist = [{ id: "", text: "Changed while hidden", done: false, skipped: false }];
+      app.render(world.snapshot());
+      world.s.tab = "checklist";
+      app.render(world.snapshot());
+      expect(boxes()[0]).not.toBe(box);
+      expect(boxes()[0]?.getAttribute("aria-label")).toBe("Open");
+      expect(root.textContent).toContain("Changed while hidden");
+      expect(root.textContent).not.toContain("C1");
+    } finally {
+      app.dispose();
+    }
+  });
+
+  test(`benchmark ${name} log prefix classes handle short strings and preserve keyed lines`, () => {
+    const root = document.createElement("main");
+    const app = createApp(root, () => {});
+    const world = new World();
+    world.s.tab = "log";
+    const texts = ["", "w", "we", "web", "web:", "web: hello", "xweb:", "Web:", "webx", "🙂"];
+    world.s.log = texts.map((text, i) => ({ time: String(i), text }));
+    const items = () => all(root as unknown as FakeElement).filter((el) => el.tagName === "LI");
+    try {
+      app.render(world.snapshot());
+      const original = items();
+      expect(original.map((el) => el.className)).toEqual(texts.map((text) => (text.startsWith("web:") ? "web" : "")));
+      world.s.log.reverse();
+      app.render(world.snapshot());
+      expect(items()).toEqual([...original].reverse());
+    } finally {
+      app.dispose();
+    }
+    app.render(world.snapshot());
+    expect(root.textContent).toBe("");
+  });
+
   test(`benchmark ${name} event bodies update every shape and changed fields with the same event key`, () => {
     const root = document.createElement("main");
     const app = createApp(root, () => {});
     const world = new World();
     world.s.tab = "activity";
-    const event = { ...world.s.events[0]!, source: "herdr" as const, status: null, who: "Before", label: "Label" };
+    const event = {
+      ...world.s.events[0]!,
+      source: "herdr" as const,
+      status: null,
+      who: "Before",
+      label: "Label",
+    };
     world.s.events = [event];
     try {
       app.render(world.snapshot());
