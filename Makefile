@@ -133,7 +133,7 @@ web-check:
 ## web-e2e: the built app and its forms in headless Chrome (CHROME=path picks
 ## the browser)
 web-e2e: web
-	cd web/e2e && bun install --offline --frozen-lockfile
+	cd web/e2e && bun install --frozen-lockfile
 	cd web && bun check --no-pretty -p e2e/tsconfig.json --typeRoots "$(BUN_GLOBAL)"
 	cd web/e2e && bun run e2e
 
