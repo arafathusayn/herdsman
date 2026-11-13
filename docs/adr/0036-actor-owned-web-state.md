@@ -105,7 +105,7 @@ the 600 ms warm window; cancelling a pending tooltip does not warm it.
 ```mermaid
 stateDiagram-v2
   [*] --> idle
-  idle --> waiting: arm [delay is zero inside warm window]
+  idle --> waiting: arm (warm delay 0, otherwise requested delay)
   waiting --> waiting: arm (replace timer)
   waiting --> idle: hide / task error
   waiting --> placing: elapsed
