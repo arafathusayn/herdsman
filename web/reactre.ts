@@ -38,7 +38,7 @@ export const reactreSources: BunPlugin = {
 function compiler(): BunPlugin {
   const root = join(import.meta.dir, "..").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const filter = new RegExp(
-    `^${root}/(?:web/(?:src|test-fixtures|e2e)|bench/web/herdsman-ui-cases/apps/reactre-state)/(?!.*\\.machine\\.ts$).*\\.[jt]sx?$`,
+    `^${root}/(?:web/(?:src|test-fixtures|e2e)|bench/web/herdsman-ui-cases/(?:apps/reactre-(?:state|signals)|shared/reactre))/(?!.*\\.machine\\.ts$).*\\.[jt]sx?$`,
   );
   return reactreCompiler({ filter });
 }

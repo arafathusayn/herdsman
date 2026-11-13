@@ -3,9 +3,10 @@ import { beforeEach, expect, test } from "bun:test";
 import { createRoot } from "@reactre/core/features/owner";
 import { useActor } from "@reactre/state/signals";
 
-import { createApp } from "../bench/web/herdsman-ui-cases/apps/reactre-state/app.tsx";
-import { rows } from "../bench/web/herdsman-ui-cases/apps/reactre-state/rows.ts";
+import { createApp as createSignalApp } from "../bench/web/herdsman-ui-cases/apps/reactre-signals/app.tsx";
+import { createApp as createActorApp } from "../bench/web/herdsman-ui-cases/apps/reactre-state/app.tsx";
 import { viewMachine } from "../bench/web/herdsman-ui-cases/apps/reactre-state/view.machine.ts";
+import { rows } from "../bench/web/herdsman-ui-cases/shared/reactre/rows.ts";
 import { eventKey, World } from "../bench/web/herdsman-ui-cases/shared/state.ts";
 import { valueState } from "./src/state/value.ts";
 import { all, type FakeElement, installDom } from "./src/testdom.ts";
@@ -31,75 +32,80 @@ test("benchmark row equality distinguishes absent fields from explicit undefined
   });
 });
 
-test("benchmark cards update non-key fields, optional bodies and selection through the actor", () => {
-  const root = document.createElement("main");
-  const elements = () => all(root as unknown as FakeElement);
-  let chosen = "";
-  const app = createApp(root, (pane) => {
-    chosen = pane;
+for (const [name, createApp] of [
+  ["actor", createActorApp],
+  ["signal", createSignalApp],
+] as const) {
+  test(`benchmark cards update non-key fields, optional bodies and selection through ${name}`, () => {
+    const root = document.createElement("main");
+    const elements = () => all(root as unknown as FakeElement);
+    let chosen = "";
+    const app = createApp(root, (pane) => {
+      chosen = pane;
+    });
+    const world = new World();
+    try {
+      app.render(world.snapshot());
+      const member = world.s.members[0]!;
+      member.title = "Changed title";
+      member.task = "A newly present task";
+      app.render(world.snapshot());
+      const card = () => elements().find((el) => el.getAttribute("data-pane") === member.pane)!;
+      expect(card().textContent).toContain("Changed title");
+      expect(card().textContent).toContain("A newly present task");
+      member.task = null;
+      world.s.selected = member.pane;
+      app.render(world.snapshot());
+      expect(card().textContent).not.toContain("A newly present task");
+      expect(card().className).toContain("selected");
+      (card() as FakeElement).dispatch("click");
+      expect(chosen).toBe(member.pane);
+    } finally {
+      app.dispose();
+    }
+    expect(root.textContent).toBe("");
+    app.render(world.snapshot());
+    expect(root.textContent).toBe("");
   });
-  const world = new World();
-  try {
-    app.render(world.snapshot());
-    const member = world.s.members[0]!;
-    member.title = "Changed title";
-    member.task = "A newly present task";
-    app.render(world.snapshot());
-    const card = () => elements().find((el) => el.getAttribute("data-pane") === member.pane)!;
-    expect(card().textContent).toContain("Changed title");
-    expect(card().textContent).toContain("A newly present task");
-    member.task = null;
-    world.s.selected = member.pane;
-    app.render(world.snapshot());
-    expect(card().textContent).not.toContain("A newly present task");
-    expect(card().className).toContain("selected");
-    (card() as FakeElement).dispatch("click");
-    expect(chosen).toBe(member.pane);
-  } finally {
-    app.dispose();
-  }
-  expect(root.textContent).toBe("");
-  app.render(world.snapshot());
-  expect(root.textContent).toBe("");
-});
 
-test("benchmark event bodies update every shape and changed fields with the same event key", () => {
-  const root = document.createElement("main");
-  const app = createApp(root, () => {});
-  const world = new World();
-  world.s.tab = "activity";
-  const event = { ...world.s.events[0]!, source: "herdr" as const, status: null, who: "Before", label: "Label" };
-  world.s.events = [event];
-  try {
-    app.render(world.snapshot());
-    const key = eventKey(event);
-    event.who = "<after>";
-    event.label = "Changed label";
-    event.clock = "Changed clock";
-    app.render(world.snapshot());
-    expect(eventKey(event)).toBe(key);
-    expect(root.textContent).toContain("Changed clockChanged label<after>");
-    expect(root.textContent).not.toContain("Before");
+  test(`benchmark ${name} event bodies update every shape and changed fields with the same event key`, () => {
+    const root = document.createElement("main");
+    const app = createApp(root, () => {});
+    const world = new World();
+    world.s.tab = "activity";
+    const event = { ...world.s.events[0]!, source: "herdr" as const, status: null, who: "Before", label: "Label" };
+    world.s.events = [event];
+    try {
+      app.render(world.snapshot());
+      const key = eventKey(event);
+      event.who = "<after>";
+      event.label = "Changed label";
+      event.clock = "Changed clock";
+      app.render(world.snapshot());
+      expect(eventKey(event)).toBe(key);
+      expect(root.textContent).toContain("Changed clockChanged label<after>");
+      expect(root.textContent).not.toContain("Before");
 
-    world.s.events = [{ ...event, status: "working", who: "Worker" }];
-    app.render(world.snapshot());
-    expect(root.textContent).toContain("WorkerWorking");
-    world.s.events = [{ ...event, status: "blocked", who: null }];
-    app.render(world.snapshot());
-    expect(root.textContent).toContain("Needs input");
-    expect(root.textContent).not.toContain("Worker");
-    world.s.events = [{ ...event, who: null }];
-    app.render(world.snapshot());
-    expect(root.textContent).toContain("Changed label");
-    expect(root.textContent).not.toContain("<after>");
-    world.s.events = [{ ...event, source: "web", who: null, text: "Web message" }];
-    app.render(world.snapshot());
-    expect(root.textContent).toContain("webWeb message");
-    expect(root.textContent).not.toContain("Changed label");
-  } finally {
-    app.dispose();
-  }
-});
+      world.s.events = [{ ...event, status: "working", who: "Worker" }];
+      app.render(world.snapshot());
+      expect(root.textContent).toContain("WorkerWorking");
+      world.s.events = [{ ...event, status: "blocked", who: null }];
+      app.render(world.snapshot());
+      expect(root.textContent).toContain("Needs input");
+      expect(root.textContent).not.toContain("Worker");
+      world.s.events = [{ ...event, who: null }];
+      app.render(world.snapshot());
+      expect(root.textContent).toContain("Changed label");
+      expect(root.textContent).not.toContain("<after>");
+      world.s.events = [{ ...event, source: "web", who: null, text: "Web message" }];
+      app.render(world.snapshot());
+      expect(root.textContent).toContain("webWeb message");
+      expect(root.textContent).not.toContain("Changed label");
+    } finally {
+      app.dispose();
+    }
+  });
+}
 
 test("benchmark projections reconcile every keyed row from the state actor", () => {
   createRoot((dispose) => {

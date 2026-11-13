@@ -5,6 +5,10 @@ compilers from Herdsman's source submodule, pinned at
 `8bae29b9fce00ab1e192f906e15191c6057550d7` (Reactre main when added).
 The existing `re` entry is the separate `@re/core` library; it is unchanged.
 
+The [core + built-in signals entry](../reactre-signals/) uses the same
+[view components and keyed projections](../../shared/reactre/), so their
+comparison changes only snapshot ownership and its bridge.
+
 Every fresh driver snapshot enters a compiled state actor. The upstream
 `useActor` bridge connects it to core; no second writable UI model exists.
 The finite benchmark contracts are directly typed, unlike Herdsman's SDK
@@ -47,7 +51,7 @@ for app in apps/*; do
   if [ -f "$app/bun.lock" ]; then (cd "$app" && bun install --frozen-lockfile); fi
 done
 bun build.ts
-bun run.ts --iterations 15
+bun run.ts --iterations 19
 ```
 
 The unchanged runner checks canonical DOM and card behavior before timing,

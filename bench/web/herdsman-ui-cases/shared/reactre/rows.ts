@@ -12,7 +12,7 @@ function equalFields<T extends object>(a: T, b: T): boolean {
   return true;
 }
 
-/** Read-only keyed projection of actor data. Equal individual rows retain
+/** Read-only keyed projection of snapshot data. Equal individual rows retain
  * identity, just as the other entries reconcile their per-key fields. There
  * is no writer or operation-aware shortcut, and every input row is visited. */
 export function rows<T extends object>(

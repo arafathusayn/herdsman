@@ -104,6 +104,16 @@ The reference markup is `apps/herdsman-patch/main.ts`. In short:
 
 Lanes come from `lanes(members)` in `shared/state.ts`.
 
+## Reactre core + built-in signals
+
+`apps/reactre-signals` uses `@reactre/core` and its built-in `signal`, from
+upstream revision `8bae29b9fce00ab1e192f906e15191c6057550d7`. See its
+[source and reproduction notes](apps/reactre-signals/README.md).
+Each fresh snapshot is written to a signal. It shares the exact view components,
+keyed projections and core compiler with the combined core + state entry below.
+Only the state owner and subscription bridge differ; this entry has no state
+machine runtime. Herdsman's production UI retains actor-owned state.
+
 ## Reactre core + state
 
 `apps/reactre-state` is one application combining the current vendored
@@ -114,7 +124,7 @@ Measured comparisons and their limitations are recorded in
 [PR #122](https://github.com/arafathusayn/herdsman/pull/122); a speed ranking is
 only claimed when supported by the complete run and its noise floor.
 
-### Measured comparison
+### Earlier comparison before adding the signals entry
 
 The complete run on 2026-11-13 used 18 entries (17 implementations plus the
 identical-build A/A control), 12 workloads and 18 rotated iterations: 3,888
