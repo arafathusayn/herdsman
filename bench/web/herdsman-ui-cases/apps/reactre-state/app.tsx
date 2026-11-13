@@ -16,9 +16,11 @@ export function createApp(root: HTMLElement, onSelect: (pane: string) => void) {
       const s = snapshot();
       return s.state === "showing" ? s.data.value : null;
     });
+    // The actor only enters showing after its first render. Read that snapshot
+    // directly under the mount guard instead of retaining another payload memo.
     return (
       <Show when={state()}>
-        {(s) => <Tabs state={s()} onSelect={onSelect} />}
+        <Tabs state={state()!} onSelect={onSelect} />
       </Show>
     );
   }, root);

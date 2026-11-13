@@ -85,7 +85,12 @@ try {
     headless: true,
     args: ["--js-flags=--expose-gc"],
   });
-  const sourceFiles = ["shared/reactre/view.tsx", "shared/reactre/rows.ts"];
+  const sourceFiles = [
+    "shared/reactre/view.tsx",
+    "shared/reactre/rows.ts",
+    "apps/reactre-state/app.tsx",
+    "apps/reactre-signals/app.tsx",
+  ];
   const sources = Object.fromEntries(
     await Promise.all(
       sourceFiles.map(async (file) => [

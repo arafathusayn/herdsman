@@ -75,6 +75,7 @@ for (const [name, createApp] of [
     });
     const world = new World();
     try {
+      expect(root.textContent).toBe("");
       app.render(world.snapshot());
       const member = world.s.members[0]!;
       member.title = "Changed title";
@@ -186,7 +187,9 @@ for (const [name, createApp] of [
       expect(original.map((el) => el.className)).toEqual(texts.map((text) => (text.startsWith("web:") ? "web" : "")));
       world.s.log.reverse();
       app.render(world.snapshot());
-      expect(items()).toEqual([...original].reverse());
+      const reordered = items();
+      expect(reordered).toHaveLength(original.length);
+      for (let i = 0; i < reordered.length; i++) expect(reordered[i]).toBe(original[original.length - i - 1]);
     } finally {
       app.dispose();
     }
