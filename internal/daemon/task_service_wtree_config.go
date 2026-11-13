@@ -138,7 +138,12 @@ func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error
 		r.naming.BranchName = name
 	}
 	setup := loaded.Config.GetSetup()
-	r.envFiles, r.shared = setup.GetEnv(), setup.GetShare()
+	r.envFiles = setup.GetEnv()
+	// Detected shares are handled from the new checkout by finishNew. Only
+	// explicitly listed shares should receive configuration diagnostics.
+	if loaded.Sources["setup.share"] != config.SourceDefault {
+		r.shared = setup.GetShare()
+	}
 	if setup.Ports != nil {
 		r.ports = int(setup.GetPorts())
 	}
