@@ -146,8 +146,10 @@ build: web
 	CGO_ENABLED=1 go build -trimpath -o bin/herdsman ./cmd/herdsman
 
 ## test: Go tests with the race detector
+# The daemon package has hundreds of race-enabled integration tests. On the
+# hosted macOS runner their aggregate time can exceed Go's default ten minutes.
 test:
-	go test -race -count=1 ./...
+	go test -race -count=1 -timeout=20m ./...
 
 ## lint-fmt: gofmt on the repository's own files; pinned copies stay as upstream
 ## wrote them, or their sums would no longer match
