@@ -24,7 +24,7 @@ Upstream: Reactre main, `8bae29b9fce00ab1e192f906e15191c6057550d7` (merged state
 
 ## Validation log
 
-- `make web-check`: formatting, SDK and state ownership guards, normal/strict types (including the combined benchmark entry), 318 app tests and 82 legacy tests passed.
+- `make web-check`: formatting, SDK and state ownership guards, normal/strict types (including the combined benchmark entry), 321 app tests and 82 legacy tests passed.
 - `make web-e2e`: 309 Chrome checks passed, including tab exit/reopen, pairing, dialogs, route submission, terminal input, artifacts, docs and large-load responsiveness regressions.
 - `make build`, Go race tests, Go vet/staticcheck and repository guards passed. The ADR guard records the new decision explicitly.
 - OXC reproduced from eight verified npm archives with identical file hashes. Installation passed with an empty cache and network disabled. OSV reported no advisories for the vendored Go/npm pins.

@@ -16,6 +16,10 @@ keyed rendering. Log renders directly from the actor: its key already
 contains every displayed field. Native element rows let the compiler use
 core's specialized list path, and a keyed selector limits selection work to
 the previously and newly selected cards.
+Per-lane memos retain unchanged member lists and counts. Activity bodies use
+flat templates for their possible shapes, reducing nested DOM cleanup when
+events leave the feed. Tests exercise same-key field changes, optional bodies,
+selection and disposal through the actual compiled app factory.
 This is ordinary per-key reconciliation, permitted by the contract and also
 used by the other entries. It never compares whole snapshots, reads operation
 names, caches operation results or skips the actor transition. Tabs dispose
