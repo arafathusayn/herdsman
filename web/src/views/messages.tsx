@@ -1,11 +1,14 @@
 // The channel's metadata and message bodies update independently of the app.
-import { batch, For, memo, Show, signal } from "@reactre/core";
+import { batch, For, memo, Show } from "@reactre/core";
 import { map } from "@reactre/core/features/lists";
 
 import { messageBody } from "../api.ts";
 import { describeFlag, healthLabel, kindLabel, stateLabel, stateTip } from "../channel.ts";
 import { Icon } from "../components/icons.tsx";
 import { icons } from "../icons.ts";
+import { createRequest } from "../state/request.ts";
+import { controllerScope } from "../state/scope.ts";
+import { valueState } from "../state/value.ts";
 import { store } from "../store.ts";
 import type { Channel, ChannelMessage } from "../types.ts";
 
@@ -14,7 +17,12 @@ function when(t: number): string {
   const today = new Date().toDateString() === d.toDateString();
   return today
     ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    : d.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
 }
 
 function seconds(n: number): string {
@@ -30,13 +38,38 @@ export interface MessagesState {
   expanded: () => Set<string>;
   bodies: () => Map<string, Loaded>;
   toggle: (message: ChannelMessage) => void;
+  stop(): void;
+  dispose(): void;
 }
 
 /** Body requests and expansion survive a tab switch without a global redraw. */
 export function createMessagesState(read: typeof messageBody = messageBody): MessagesState {
-  const [expanded, setExpanded] = signal(new Set<string>());
-  const [bodies, setBodies] = signal(new Map<string, Loaded>());
-  const put = (id: string, value: Loaded): void => setBodies((current) => new Map([...current, [id, value]]));
+  const [expanded, setExpanded] = valueState(new Set<string>());
+  // Resource handles only. Each request actor owns its own result and phase.
+  const requests = new Map<string, ReturnType<typeof makeRequest>>();
+  const [ids, setIds] = valueState<string[]>([]);
+  const makeRequest = () =>
+    controllerScope(() =>
+      createRequest(async (message: ChannelMessage, signal) => read(message.to, message.id, signal)),
+    );
+  const bodies = memo(
+    () =>
+      new Map(
+        ids().map((id): [string, Loaded] => {
+          const request = requests.get(id)!;
+          const error = request.error();
+          const text = request.data();
+          return [
+            id,
+            error
+              ? { error: error instanceof Error ? error.message : String(error) }
+              : text === undefined
+                ? {}
+                : { text },
+          ];
+        }),
+      ),
+  );
   const toggle = (message: ChannelMessage): void => {
     if (message.state !== "ready" && message.state !== "cur") return;
     const closing = expanded().has(message.id);
@@ -47,17 +80,27 @@ export function createMessagesState(read: typeof messageBody = messageBody): Mes
         else next.add(message.id);
         return next;
       });
-      if (!closing && (!bodies().has(message.id) || bodies().get(message.id)?.error)) {
-        put(message.id, {});
-        void read(message.to, message.id)
-          .then((text) => put(message.id, { text }))
-          .catch((error: unknown) =>
-            put(message.id, { error: error instanceof Error ? error.message : String(error) }),
-          );
+      let request = requests.get(message.id);
+      if (closing) {
+        request?.cancel();
+        return;
       }
+      if (!request) {
+        request = makeRequest();
+        requests.set(message.id, request);
+        setIds([...ids(), message.id]);
+      }
+      if (!request.loading() && (request.data() === undefined || request.error())) void request.run(message);
     });
   };
-  return { expanded, bodies, toggle };
+  const stop = () => {
+    for (const request of requests.values()) request.cancel();
+  };
+  const dispose = () => {
+    for (const request of requests.values()) request.dispose();
+    requests.clear();
+  };
+  return { expanded, bodies, toggle, stop, dispose };
 }
 
 function MessageBody(props: { text: string }) {
@@ -74,7 +117,10 @@ function MessageBody(props: { text: string }) {
   const fields = memo(() =>
     Object.entries(parsed() ?? {})
       .filter(([key]) => key !== "text" && key !== "version")
-      .map(([key, value]) => ({ key, value: typeof value === "string" ? value : JSON.stringify(value) })),
+      .map(([key, value]) => ({
+        key,
+        value: typeof value === "string" ? value : JSON.stringify(value),
+      })),
   );
   return (
     <Show when={parsed()} fallback={<pre class="msg-text">{props.text}</pre>}>

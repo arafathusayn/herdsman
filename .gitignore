@@ -12,3 +12,6 @@
 
 # setup-zig restores this cache before GoReleaser checks for a clean tree.
 /.zig-cache/
+
+# Build-only parser for the vendored state compiler.
+/web/node_modules/

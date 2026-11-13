@@ -490,7 +490,7 @@ test("the composer sends with Ctrl+Enter and submit, and the close button closes
   await flush();
   expect(actions.at(-1)).toEqual({ type: "prompt", pane: "p7", text: "again" });
 
-  store.app.view.pane = "p7";
+  store.go({ pane: "p7" });
   dispatch(
     all(byClass(p.el, "panel-head")).find((e) => e.getAttribute("title") === "Close panel")!,
     "click",

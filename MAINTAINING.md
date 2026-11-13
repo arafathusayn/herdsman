@@ -37,7 +37,7 @@ Then, for both:
 
 ## Add an upstream
 
-A new upstream is a decision. Record it in `docs/adr/`, add it to `dependencyBudget` in `internal/guard/budget_test.go`, and write its `VENDOR.md` from `third_party/VENDOR.template.md`.
+A new upstream is a decision. Record it in `docs/adr/` and write its `VENDOR.md` from `third_party/VENDOR.template.md`. Go dependencies belong in `dependencyBudget` in `internal/guard/budget_test.go`. The web compiler's build-only npm packages belong in `buildDependencyBudget` in `web/build.test.ts`; see `web/vendor/oxc/VENDOR.md` for verified, reproducible updates. Both budgets are checked by the normal module checks; the advisory script checks both ecosystems.
 
 ## Advisories
 

@@ -1,6 +1,8 @@
 // Draggable widths: the agent panel at its left edge and the sidebar at its
 // right edge, each kept for next time.
-import { onCleanup, signal } from "@reactre/core";
+import { effect, onCleanup } from "@reactre/core";
+
+import { valueState } from "./state/value.ts";
 
 /** One resizable column: where its width lives and how far it may go. */
 interface Edge {
@@ -18,6 +20,8 @@ interface Edge {
 /** The main column keeps at least this much room. */
 const mainRoom = 360;
 const step = 32;
+const [widths, setWidths] = valueState<Record<string, number | null>>({});
+const [dragging, setDragging] = valueState<string | null>(null);
 
 const panelEdge: Edge = {
   key: "herdsman.panel-width",
@@ -56,8 +60,10 @@ export function loadWidths(): void {
   }
 }
 
-function setWidth(e: Edge, w: number): void {
-  document.documentElement.style.setProperty(e.prop, `${Math.round(w)}px`);
+function setWidth(e: Edge, w: number | null): void {
+  setWidths((current) => ({ ...current, [e.key]: w === null ? null : Math.round(w) }));
+  if (w === null) document.documentElement.style.removeProperty(e.prop);
+  else document.documentElement.style.setProperty(e.prop, `${widths()[e.key]}px`);
 }
 
 function saveWidth(e: Edge, w: number | null): void {
@@ -87,14 +93,14 @@ export function navResizer(nav: HTMLElement): HTMLElement {
  * a double click goes back to the default width.
  */
 function resizer(col: HTMLElement, e: Edge): HTMLElement {
-  const [width, setWidthValue] = signal<number | null>(null);
+  const width = () => widths()[e.key] ?? null;
+  effect(() => document.body.classList.toggle("resizing", dragging() !== null));
   let handle!: HTMLDivElement;
   let stopDrag = (): void => {};
   onCleanup(() => stopDrag());
   const apply = (w: number): number => {
     const c = clampWidth(w, e.max(), e.min);
     setWidth(e, c);
-    setWidthValue(Math.round(c));
     return c;
   };
   // The arrow toward the column's free side widens it.
@@ -118,17 +124,17 @@ function resizer(col: HTMLElement, e: Edge): HTMLElement {
         stopDrag();
         handle.setPointerCapture(ev.pointerId);
         const r = col.getBoundingClientRect();
-        let w = r.width;
-        document.body.classList.add("resizing");
+        setWidths((current) => ({ ...current, [e.key]: Math.round(r.width) }));
+        setDragging(e.key);
         const move = (m: PointerEvent): void => {
-          w = apply(e.side === "left" ? r.right - m.clientX : m.clientX - r.left);
+          apply(e.side === "left" ? r.right - m.clientX : m.clientX - r.left);
         };
         const up = (): void => {
           handle.removeEventListener("pointermove", move);
           handle.removeEventListener("pointerup", up);
           handle.removeEventListener("pointercancel", up);
-          document.body.classList.remove("resizing");
-          saveWidth(e, w);
+          setDragging(null);
+          saveWidth(e, width());
           stopDrag = () => {};
         };
         stopDrag = up;
@@ -143,9 +149,8 @@ function resizer(col: HTMLElement, e: Edge): HTMLElement {
         saveWidth(e, apply(col.getBoundingClientRect().width + d));
       }}
       onDblClick={() => {
-        document.documentElement.style.removeProperty(e.prop);
+        setWidth(e, null);
         saveWidth(e, null);
-        setWidthValue(null);
       }}
     />
   ) as HTMLDivElement;

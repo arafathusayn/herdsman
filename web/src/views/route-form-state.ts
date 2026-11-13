@@ -1,4 +1,4 @@
-import { batch, signal } from "@reactre/core";
+import { batch, memo } from "@reactre/core";
 
 import {
   accountOptions,
@@ -17,11 +17,13 @@ import {
   usePrevious,
   validate,
 } from "../new-route.ts";
+import { createRequest } from "../state/request.ts";
+import { valueState } from "../state/value.ts";
 import type { Catalog, GitHubAccess, InboxState, RouteRequest, RouteResult, State } from "../types.ts";
 
 export interface Deps {
-  createRoute(request: RouteRequest): Promise<RouteResult>;
-  inboxState(path: string, adjutant: string, orchestrator: string): Promise<InboxState>;
+  createRoute(request: RouteRequest, signal?: AbortSignal): Promise<RouteResult>;
+  inboxState(path: string, adjutant: string, orchestrator: string, signal?: AbortSignal): Promise<InboxState>;
   state(): State | null;
   copy(text: string, what: string): void;
   openPane(pane: string): void;
@@ -29,7 +31,7 @@ export interface Deps {
   failed(error: unknown): void;
   every(ms: number, fn: () => void): () => void;
   later(ms: number, fn: () => void): () => void;
-  github?(folder: string): Promise<GitHubAccess>;
+  github?(folder: string, signal?: AbortSignal): Promise<GitHubAccess>;
 }
 export interface FormOptions {
   usePrevious?: boolean;
@@ -52,63 +54,61 @@ interface FormSnapshot {
   inbox: { key: string; state: InboxState } | null;
 }
 
-/** Drafts and asynchronous results are immutable signal snapshots, independent of the DOM. */
+/** Draft data belongs to a value actor; request phases and results are derived. */
 export function createRouteFormState(initial: Catalog, session: State | null, deps: Deps, options: FormOptions = {}) {
   let draft = newForm(initial, session);
   if (options.recommended === false) draft = setRecommended(draft, initial, false);
   if (options.usePrevious) draft = usePrevious(draft, initial);
-  const [state, setState] = signal<FormSnapshot>({
+  const [draftState, setState] = valueState<
+    Omit<FormSnapshot, "busy" | "github" | "githubPending" | "result" | "inbox">
+  >({
     catalog: initial,
     draft,
     errors: options.usePrevious ? missingPicks(draft, initial) : {},
-    busy: false,
-    github: null,
-    githubPending: false,
     submitted: null,
-    result: null,
-    inbox: null,
   });
-  const set = (patch: Partial<FormSnapshot>): void => setState((current) => ({ ...current, ...patch }));
+  const set = (patch: Partial<ReturnType<typeof draftState>>): void =>
+    setState((current) => ({ ...current, ...patch }));
   const active = (): RouteForm => state().submitted ?? state().draft;
-  let stopped = false,
-    started = false,
-    githubFolder = "",
-    sequence = 0,
-    githubSequence = 0;
+  const [lifecycle, setLifecycle] = valueState({ stopped: false, started: false, githubFolder: "" });
+  const githubRequest = createRequest(async (folder: string, signal) => deps.github!(folder, signal));
+  const inboxRequest = createRequest(async (draft: RouteForm, signal) => ({
+    key: inboxKey(draft),
+    state: await deps.inboxState(draft.inbox, draft.name, draft.orchName, signal),
+  }));
+  const submission = createRequest(async (request: RouteRequest, signal) => deps.createRoute(request, signal));
+  const state = memo<FormSnapshot>(() => {
+    const result = submission.data();
+    return {
+      ...draftState(),
+      busy: submission.loading(),
+      github: githubRequest.data() ?? null,
+      githubPending: githubRequest.loading(),
+      inbox: inboxRequest.error() ? null : (inboxRequest.data() ?? null),
+      result: result?.code === "invalid_route" || result?.code === "bad_request" ? null : (result ?? null),
+    };
+  });
   let stopPoll = (): void => {},
     cancelDebounce = (): void => {};
   const probeGitHub = (): void => {
     const folder = state().draft.folder.trim();
-    if (stopped || !deps.github || folder === githubFolder) return;
-    githubFolder = folder;
-    const request = ++githubSequence;
+    if (lifecycle().stopped || !deps.github || folder === lifecycle().githubFolder) return;
+    setLifecycle({ ...lifecycle(), githubFolder: folder });
+    githubRequest.clear();
     const pending = folder.startsWith("/");
-    set({ github: null, githubPending: pending, draft: { ...state().draft, ghAccount: "" } });
+    set({ draft: { ...state().draft, ghAccount: "" } });
     if (!pending) return;
-    void deps.github(folder).then(
-      (github) => {
-        if (!stopped && request === githubSequence) set({ github, githubPending: false });
-      },
-      () => {
-        if (!stopped && request === githubSequence) set({ githubPending: false });
-      },
-    );
+    void githubRequest.run(folder);
   };
   const readInbox = (): void => {
-    if (stopped) return;
+    if (lifecycle().stopped) return;
     probeGitHub();
     const draft = active();
-    if (draft.role !== "adjutant") return;
-    const key = inboxKey(draft),
-      request = ++sequence;
-    void deps.inboxState(draft.inbox, draft.name, draft.orchName).then(
-      (inbox) => {
-        if (!stopped && request === sequence && key === inboxKey(active())) set({ inbox: { key, state: inbox } });
-      },
-      () => {
-        if (!stopped && request === sequence) set({ inbox: null });
-      },
-    );
+    if (draft.role !== "adjutant") {
+      inboxRequest.clear();
+      return;
+    }
+    void inboxRequest.run(draft);
   };
   const clearErrors = (...names: string[]): Record<string, string> =>
     Object.fromEntries(Object.entries(state().errors).filter(([name]) => !names.includes(name)));
@@ -126,24 +126,28 @@ export function createRouteFormState(initial: Catalog, session: State | null, de
     deps,
     options,
     start(): void {
-      if (started || stopped) return;
-      started = true;
+      if (lifecycle().started || lifecycle().stopped) return;
+      setLifecycle({ ...lifecycle(), started: true });
       stopPoll = deps.every(INBOX_POLL_MS, readInbox);
       readInbox();
     },
     stop(): void {
-      if (stopped) return;
-      stopped = true;
-      sequence++;
-      githubSequence++;
+      if (lifecycle().stopped) return;
+      setLifecycle({ ...lifecycle(), stopped: true });
+      githubRequest.stop();
+      inboxRequest.stop();
+      submission.stop();
       stopPoll();
       cancelDebounce();
     },
     change(change: Partial<RouteForm>): void {
-      if (state().busy || stopped) return;
+      if (state().busy || lifecycle().stopped) return;
       const before = inboxKey(state().draft);
       batch(() => {
-        set({ draft: update(state().draft, change), errors: clearErrors(...Object.keys(change)) });
+        set({
+          draft: update(state().draft, change),
+          errors: clearErrors(...Object.keys(change)),
+        });
         if (change.folder !== undefined) probeGitHub();
       });
       if (inboxKey(state().draft) !== before) {
@@ -152,70 +156,86 @@ export function createRouteFormState(initial: Catalog, session: State | null, de
       }
     },
     harness(which: "main" | "orch", change: HarnessChange): void {
-      if (state().busy || stopped) return;
+      if (state().busy || lifecycle().stopped) return;
       set({
         draft: setHarness(state().draft, state().catalog, which, change),
         errors: clearErrors(which, ...(which === "main" ? ["orch"] : [])),
       });
     },
     role(role: RouteForm["role"]): void {
-      if (state().busy || stopped) return;
+      if (state().busy || lifecycle().stopped) return;
       set({ draft: setRole(state().draft, role, state().catalog) });
       if (state().catalog.from_picks && Object.keys(missingPicks(state().draft, state().catalog)).length)
         options.needLists?.();
       readInbox();
     },
     recommended(value: boolean): void {
-      if (state().busy || stopped) return;
+      if (state().busy || lifecycle().stopped) return;
       set({ draft: setRecommended(state().draft, state().catalog, value) });
       readInbox();
     },
     previous(): void {
-      if (state().busy || stopped) return;
+      if (state().busy || lifecycle().stopped) return;
       const draft = usePrevious(state().draft, state().catalog);
-      set({ draft, errors: { ...clearErrors("main", "orch"), ...missingPicks(draft, state().catalog) } });
+      set({
+        draft,
+        errors: {
+          ...clearErrors("main", "orch"),
+          ...missingPicks(draft, state().catalog),
+        },
+      });
     },
     setCatalog(next: Catalog): void {
-      if (stopped) return;
-      const catalog = { ...next, previous: next.previous ?? state().catalog.previous ?? [] };
+      if (lifecycle().stopped) return;
+      const catalog = {
+        ...next,
+        previous: next.previous ?? state().catalog.previous ?? [],
+      };
       const draft = freshFromLists(state().draft, catalog);
-      set({ catalog, draft, errors: { ...clearErrors("main", "orch"), ...missingPicks(draft, catalog) } });
+      set({
+        catalog,
+        draft,
+        errors: {
+          ...clearErrors("main", "orch"),
+          ...missingPicks(draft, catalog),
+        },
+      });
     },
     back(): void {
-      if (!stopped) set({ busy: false, submitted: null, result: null });
+      if (!lifecycle().stopped) {
+        submission.clear();
+        set({ submitted: null });
+      }
     },
     submit(event: SubmitEvent): void {
       const answer = event.submitter?.getAttribute("value");
       if (answer === "cancel" || answer === "ok") return;
       event.preventDefault();
-      if (state().busy || stopped || blocked()) return;
+      if (state().busy || lifecycle().stopped || blocked()) return;
       const errors = validate(state().draft, state().catalog, deps.state());
       if (Object.keys(errors).length) {
         set({ errors });
         return;
       }
       const draft = state().draft;
-      set({ busy: true, submitted: draft, errors });
-      void deps.createRoute(toRequest(draft, state().catalog)).then(
-        (result) => {
-          if (stopped) return;
-          if (result.code === "invalid_route" || result.code === "bad_request") {
-            set({
-              busy: false,
-              submitted: null,
-              errors: { [formField(result.field) || "request"]: result.error ?? "Refused." },
-            });
-            return;
-          }
-          set({ busy: false, result });
-          readInbox();
-        },
-        (error: unknown) => {
-          if (stopped) return;
-          set({ busy: false, submitted: null });
-          deps.failed(error);
-        },
-      );
+      set({ submitted: draft, errors });
+      void submission.run(toRequest(draft, state().catalog)).then((outcome) => {
+        if (outcome.status === "cancelled") return;
+        if (outcome.status === "failed") {
+          set({ submitted: null });
+          deps.failed(outcome.error);
+          return;
+        }
+        const result = outcome.value;
+        if (result.code === "invalid_route" || result.code === "bad_request") {
+          set({
+            submitted: null,
+            errors: { [formField(result.field) || "request"]: result.error ?? "Refused." },
+          });
+          return;
+        }
+        readInbox();
+      });
     },
   };
 }

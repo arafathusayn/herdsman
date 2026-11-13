@@ -2,11 +2,13 @@ import { attach, For, Show } from "@reactre/core";
 import type { Child } from "@reactre/core/jsx-runtime";
 
 import { dismissOnBackdrop } from "../dialog-backdrop.ts";
+import { lifetime } from "../state/lifetime.ts";
+import { valueState } from "../state/value.ts";
 
-function openDialog(content: () => Child, closed: (dialog: HTMLDialogElement) => void): void {
+function openDialog(content: () => Child, closed: (dialog: HTMLDialogElement) => void): () => void {
   let dialog!: HTMLDialogElement;
   let dispose = (): void => {};
-  let finished = false;
+  const finished = lifetime();
   dispose = attach(
     () => (
       <dialog
@@ -15,8 +17,7 @@ function openDialog(content: () => Child, closed: (dialog: HTMLDialogElement) =>
           dialog = element;
         }}
         onClose={() => {
-          if (finished) return;
-          finished = true;
+          if (!finished.close()) return;
           try {
             closed(dialog);
           } finally {
@@ -31,11 +32,23 @@ function openDialog(content: () => Child, closed: (dialog: HTMLDialogElement) =>
   );
   dismissOnBackdrop(dialog);
   dialog.showModal();
+  return () => dialog.close("cancel");
 }
 
-export function confirmDialog(title: string, body: string, confirmLabel: string, danger = false): Promise<boolean> {
+export function confirmDialog(
+  title: string,
+  body: string,
+  confirmLabel: string,
+  danger = false,
+  signal?: AbortSignal,
+): Promise<boolean> {
   return new Promise((resolve) => {
-    openDialog(
+    if (signal?.aborted) {
+      resolve(false);
+      return;
+    }
+    const abort = () => close();
+    const close = openDialog(
       () => (
         <form method="dialog">
           <h2>{title}</h2>
@@ -50,8 +63,12 @@ export function confirmDialog(title: string, body: string, confirmLabel: string,
           </div>
         </form>
       ),
-      (dialog) => resolve(dialog.returnValue === "ok"),
+      (dialog) => {
+        signal?.removeEventListener("abort", abort);
+        resolve(dialog.returnValue === "ok");
+      },
     );
+    signal?.addEventListener("abort", abort, { once: true });
   });
 }
 
@@ -66,7 +83,7 @@ export interface Field {
   pattern?: string;
 }
 
-function FieldInput(props: { field: Field }) {
+function FieldInput(props: { field: Field; value: string; change(value: string): void }) {
   const field = props.field;
   const id = `f-${field.name}-${Math.random().toString(36).slice(2, 8)}`;
   const options = [...new Set(field.list ?? [])];
@@ -77,7 +94,8 @@ function FieldInput(props: { field: Field }) {
       <input
         id={id}
         name={field.name}
-        value={field.value ?? ""}
+        value={props.value}
+        onInput={(event) => props.change((event.currentTarget as HTMLInputElement).value)}
         placeholder={field.placeholder ?? null}
         required={field.required ?? false}
         pattern={field.pattern ?? null}
@@ -105,13 +123,20 @@ export function formDialog(
   fields: Field[],
   submitLabel: string,
 ): Promise<Record<string, string> | null> {
+  const [values, setValues] = valueState(Object.fromEntries(fields.map((field) => [field.name, field.value ?? ""])));
   return new Promise((resolve) => {
     openDialog(
       () => (
         <form method="dialog">
           <h2>{title}</h2>
           <For each={fields} key={(field) => field.name}>
-            {(field) => <FieldInput field={field} />}
+            {(field) => (
+              <FieldInput
+                field={field}
+                value={values()[field.name] ?? ""}
+                change={(value) => setValues((current) => ({ ...current, [field.name]: value }))}
+              />
+            )}
           </For>
           <div class="dialog-actions">
             <button value="cancel" class="btn ghost" formnovalidate>
@@ -124,12 +149,7 @@ export function formDialog(
         </form>
       ),
       (dialog) => {
-        const form = dialog.querySelector("form");
-        resolve(
-          dialog.returnValue !== "ok" || !form
-            ? null
-            : Object.fromEntries([...new FormData(form)].map(([key, value]) => [key, String(value)])),
-        );
+        resolve(dialog.returnValue === "ok" ? values() : null);
       },
     );
   });

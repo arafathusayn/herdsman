@@ -2,7 +2,7 @@
 // JavaScript size in dist/sizes.json. An app with its own build.ts builds
 // itself (contract: it writes dist/<name>/index.html plus assets); the rest
 // bundle their index.html with Bun, minified, with HERDSMAN_DEV false.
-// herdsman-patch is also built as herdsman-patch-control, the A/A control the runner reports.
+// vanillajs-lite is also built as vanillajs-lite-control, the A/A control the runner reports.
 //
 //   bun build.ts [names...]
 
@@ -13,7 +13,8 @@ const here = import.meta.dir;
 const appsDir = join(here, "apps");
 const distDir = join(here, "dist");
 
-export const CONTROL = "herdsman-patch-control";
+export const REFERENCE = "vanillajs-lite";
+export const CONTROL = `${REFERENCE}-control`;
 
 export interface Size {
   raw: number;
@@ -66,13 +67,15 @@ async function main(): Promise<void> {
   const asked = process.argv.slice(2);
   for (const n of asked) if (!all.includes(n)) throw new Error(`no app ${n} in apps/ (have ${all.join(", ")})`);
   const names = asked.length ? asked : all;
+  // A full build must not leave retired entries discoverable by the runner.
+  if (!asked.length) rmSync(distDir, { recursive: true, force: true });
   mkdirSync(distDir, { recursive: true });
 
   const sizesFile = join(distDir, "sizes.json");
   const sizes: Record<string, Size> = existsSync(sizesFile) ? await Bun.file(sizesFile).json() : {};
   const failed: string[] = [];
   for (const name of names) {
-    const outs = name === "herdsman-patch" ? [name, CONTROL] : [name];
+    const outs = name === REFERENCE ? [name, CONTROL] : [name];
     for (const out of outs) {
       const t = performance.now();
       try {

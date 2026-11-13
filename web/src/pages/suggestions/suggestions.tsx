@@ -1,7 +1,9 @@
-import { For, Show, signal } from "@reactre/core";
+import { For, Show } from "@reactre/core";
 
 import { Markdown } from "../../markdown.tsx";
 import { explain, services } from "../../sdk/index.ts";
+import { createRequest } from "../../state/request.ts";
+import { valueState } from "../../state/value.ts";
 import { Async, Failure, fieldValue, load, PageFrame } from "../load.tsx";
 
 // The catalog's kinds; the daemon refuses any other.
@@ -15,43 +17,39 @@ function tagsOf(text: string): string[] {
 }
 
 export function SuggestionsPage() {
-  const [text, setText] = signal("");
-  const state = load(() => services().suggest.search({ text: text().trim() }));
-  const [openId, setOpenId] = signal("");
-  const [body, setBody] = signal("");
-  const [bodyError, setBodyError] = signal<unknown>(undefined);
-  const [adding, setAdding] = signal(false);
-  const [title, setTitle] = signal("");
-  const [kind, setKind] = signal(kinds[0] as string);
-  const [tags, setTags] = signal("");
-  const [draft, setDraft] = signal("");
-  const [problem, setProblem] = signal("");
-
+  const [text, setText] = valueState("");
+  const state = load((signal) => services().suggest.search({ text: text().trim() }, { signal }));
+  const [openId, setOpenId] = valueState("");
+  const bodyRequest = createRequest(async (id: string, signal) => services().suggest.get({ id }, { signal }));
+  const body = () => bodyRequest.data()?.entry?.body ?? "";
+  const bodyError = bodyRequest.error;
+  const [adding, setAdding] = valueState(false);
+  const [title, setTitle] = valueState("");
+  const [kind, setKind] = valueState(kinds[0] as string);
+  const [tags, setTags] = valueState("");
+  const [draft, setDraft] = valueState("");
+  const mutation = createRequest(async (input: { kind: string; title: string; tags: string[]; body: string }, signal) =>
+    services().suggest.add(input, { signal }),
+  );
+  const problem = () => (mutation.error() === undefined ? "" : explain(mutation.error()));
   const open = async (id: string) => {
     setOpenId(id);
-    setBody("");
-    setBodyError(undefined);
-    try {
-      const reply = await services().suggest.get({ id });
-      if (openId() === id) setBody(reply.entry?.body ?? "");
-    } catch (error) {
-      if (openId() === id) setBodyError(() => error);
-    }
+    bodyRequest.clear();
+    await bodyRequest.run(id);
   };
-
   const add = async (event: Event) => {
     event.preventDefault();
-    setProblem("");
-    try {
-      await services().suggest.add({ kind: kind(), title: title().trim(), tags: tagsOf(tags()), body: draft() });
+    if (mutation.loading() || !title().trim() || !draft().trim() || tagsOf(tags()).length === 0) return;
+    const input = { kind: kind(), title: title().trim(), tags: tagsOf(tags()), body: draft() };
+    const outcome = await mutation.run(input);
+    if (outcome.status !== "done") return;
+    if (title().trim() === input.title && draft() === input.body) {
       setTitle("");
       setTags("");
       setDraft("");
       setAdding(false);
-      await state.reload();
-    } catch (error) {
-      setProblem(explain(error));
     }
+    await state.reload();
   };
 
   return (
@@ -109,7 +107,7 @@ export function SuggestionsPage() {
           <button
             class="btn primary"
             type="submit"
-            disabled={!title().trim() || tagsOf(tags()).length === 0 || !draft().trim()}
+            disabled={!title().trim() || tagsOf(tags()).length === 0 || !draft().trim() || mutation.loading()}
           >
             Save entry
           </button>

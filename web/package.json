@@ -1,0 +1,17 @@
+{
+  "name": "herdsman-web-build",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "oxc-parser": "file:vendor/oxc/oxc-parser"
+  },
+  "overrides": {
+    "@oxc-project/types": "file:vendor/oxc/types",
+    "@oxc-parser/binding-darwin-arm64": "file:vendor/oxc/binding-darwin-arm64",
+    "@oxc-parser/binding-darwin-x64": "file:vendor/oxc/binding-darwin-x64",
+    "@oxc-parser/binding-linux-arm64-gnu": "file:vendor/oxc/binding-linux-arm64-gnu",
+    "@oxc-parser/binding-linux-arm64-musl": "file:vendor/oxc/binding-linux-arm64-musl",
+    "@oxc-parser/binding-linux-x64-gnu": "file:vendor/oxc/binding-linux-x64-gnu",
+    "@oxc-parser/binding-linux-x64-musl": "file:vendor/oxc/binding-linux-x64-musl"
+  }
+}

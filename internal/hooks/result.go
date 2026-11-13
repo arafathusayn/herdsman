@@ -43,7 +43,21 @@ func writeResult(result *Result) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(result.File, append(data, '\n'), 0o600); err != nil {
+	// Readers use this file's appearance as completion. Publish the complete
+	// document with a rename so they cannot observe an empty or partial write.
+	temp, err := os.CreateTemp(filepath.Dir(result.File), ".result-*")
+	if err != nil {
+		return fmt.Errorf("hooks: write result: %w", err)
+	}
+	defer os.Remove(temp.Name())
+	if _, err := temp.Write(append(data, '\n')); err != nil {
+		temp.Close()
+		return fmt.Errorf("hooks: write result: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("hooks: write result: %w", err)
+	}
+	if err := os.Rename(temp.Name(), result.File); err != nil {
 		return fmt.Errorf("hooks: write result: %w", err)
 	}
 	return nil

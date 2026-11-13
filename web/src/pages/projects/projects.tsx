@@ -1,25 +1,27 @@
-import { For, Show, signal } from "@reactre/core";
+import { For, Show } from "@reactre/core";
 
 import { explain, services } from "../../sdk/index.ts";
+import { createRequest } from "../../state/request.ts";
+import { valueState } from "../../state/value.ts";
 import { Async, fieldValue, load, PageFrame } from "../load.tsx";
 
 export function ProjectsPage() {
-  const state = load(() => services().projects.list({}));
-  const [name, setName] = signal("");
-  const [description, setDescription] = signal("");
-  const [problem, setProblem] = signal("");
-
+  const state = load((signal) => services().projects.list({}, { signal }));
+  const [name, setName] = valueState("");
+  const [description, setDescription] = valueState("");
+  const mutation = createRequest(async (input: { name: string; description: string }, signal) =>
+    services().projects.create(input, { signal }),
+  );
+  const problem = () => (mutation.error() === undefined ? "" : explain(mutation.error()));
   const create = async (event: Event) => {
     event.preventDefault();
-    setProblem("");
-    try {
-      await services().projects.create({ name: name().trim(), description: description().trim() });
-      setName("");
-      setDescription("");
-      await state.reload();
-    } catch (error) {
-      setProblem(explain(error));
-    }
+    if (mutation.loading() || !name().trim()) return;
+    const input = { name: name().trim(), description: description().trim() };
+    const outcome = await mutation.run(input);
+    if (outcome.status !== "done") return;
+    if (name().trim() === input.name) setName("");
+    if (description().trim() === input.description) setDescription("");
+    await state.reload();
   };
 
   return (
@@ -36,7 +38,7 @@ export function ProjectsPage() {
                 Description
                 <input value={description()} onInput={(event) => setDescription(fieldValue(event))} />
               </label>
-              <button class="btn primary" type="submit" disabled={!name().trim()}>
+              <button class="btn primary" type="submit" disabled={!name().trim() || mutation.loading()}>
                 Create project
               </button>
               <Show when={problem()}>

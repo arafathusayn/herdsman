@@ -41,7 +41,7 @@ test("pairing submits once while busy, then keeps and resets the same field afte
   expect(sent).toEqual(["123456"]);
   expect(button.hasAttribute("disabled")).toBe(true);
   resolve({ status: "pairing", error: "Wrong code.", left: 2 });
-  await Promise.resolve();
+  await Bun.sleep(0);
   expect(find(root, (element) => element.tagName === "INPUT")).toBe(input);
   expect(input.value).toBe("");
   expect(find(root, (element) => element.className === "pair-message error")?.textContent).toBe(
@@ -70,7 +70,7 @@ test("a disposed pairing flow ignores a successful response that arrives later",
   dispatch(input, "input");
   dispose();
   resolve({ status: "paired", device: "device" });
-  await Promise.resolve();
+  await Bun.sleep(0);
   expect(paired).toEqual([]);
   expect(elements(root)).toEqual([]);
 });
@@ -86,7 +86,7 @@ test("an ended pairing request replaces the form with its reason", async () => {
   const input = find(root, (element) => element.tagName === "INPUT")!;
   input.value = "123456";
   dispatch(input, "input");
-  await Promise.resolve();
+  await Bun.sleep(0);
   expect(find(root, (element) => element.tagName === "FORM")).toBeUndefined();
   expect(root.textContent).toContain("Pairing endedExpired.");
   dispose();

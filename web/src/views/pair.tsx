@@ -1,8 +1,13 @@
-import { attach, batch, onCleanup, Show, signal } from "@reactre/core";
+import { attach, onCleanup, Show } from "@reactre/core";
+import { createActor } from "@reactre/state";
 
 import { pair } from "../api.ts";
 import { Icon, Logo } from "../components/icons.tsx";
 import { icons } from "../icons.ts";
+import { observeActor } from "../state/observe.ts";
+import { pairingMachine } from "../state/pairing.machine.ts";
+import { registerRequest } from "../state/request-service.ts";
+import { encodeValue } from "../state/wire.ts";
 import { openHosts } from "./hosts.tsx";
 
 const digits = 6;
@@ -23,54 +28,40 @@ export function showPairing(
   onPaired: (device: string) => void,
   request: typeof pair = pair,
 ): () => void {
-  const [busy, setBusy] = signal(false);
-  const [complete, setComplete] = signal(false);
-  const [note, setNote] = signal({ error: false, text: "" });
-  const [ended, setEnded] = signal<string | null>(null);
+  const service = registerRequest(async (code, signal) => encodeValue(await request(code, signal)));
+  const actor = createActor(pairingMachine, { input: { service: service.id } });
+  const observed = observeActor(actor);
+  const state = observed.read;
+  const busy = () => state().state === "checking";
+  const code = () => {
+    const s = state();
+    return s.state === "editing" || s.state === "checking" ? s.data.code : "";
+  };
+  const complete = () => code().length === digits;
+  const ended = () => {
+    const s = state();
+    return s.state === "ended" ? s.data.message : null;
+  };
+  const note = () => {
+    const s = state();
+    return s.state === "editing"
+      ? { error: s.data.error, text: s.data.message }
+      : { error: false, text: busy() ? "Checking…" : "" };
+  };
   let input: HTMLInputElement;
-  let disposed = false;
-  const clean = (): string => input.value.replace(/\D/g, "").slice(0, digits);
-
-  const send = async (): Promise<void> => {
-    const code = clean();
-    if (code.length !== digits || busy() || disposed) return;
-    batch(() => {
-      setBusy(true);
-      setNote({ error: false, text: "Checking…" });
-    });
-    try {
-      const status = await request(code);
-      if (disposed) return;
-      if (status.status === "paired" && status.device) {
-        onPaired(status.device);
-        return;
-      }
-      if (status.status === "none") {
-        setEnded(status.error ?? "This pairing request ended.");
-        return;
-      }
-      setNote({
-        error: true,
-        text: status.left
-          ? `${status.error ?? "That code is wrong."} ${status.left} ${status.left === 1 ? "try" : "tries"} left.`
-          : (status.error ?? ""),
-      });
-      input.value = "";
-      input.focus();
-    } catch (error) {
-      if (!disposed) setNote({ error: true, text: error instanceof Error ? error.message : String(error) });
-    } finally {
-      if (!disposed)
-        batch(() => {
-          setBusy(false);
-          setComplete(clean().length === digits);
-        });
-    }
+  const off = actor.subscribe((snapshot) => {
+    if (snapshot.state === "paired") onPaired(snapshot.data.device);
+    else if (snapshot.state === "editing" && snapshot.data.error) input?.focus();
+  });
+  const send = (): void => {
+    actor.send({ type: "submit" });
   };
 
   const View = () => {
     onCleanup(() => {
-      disposed = true;
+      off();
+      observed.stop();
+      service.dispose();
     });
     return (
       <main class="pair">
@@ -115,11 +106,10 @@ export function showPairing(
                 ref={(element) => {
                   input = element;
                 }}
+                value={code().length > 3 ? `${code().slice(0, 3)} ${code().slice(3)}` : code()}
                 onInput={() => {
-                  const code = clean();
-                  input.value = code.length > 3 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
-                  setComplete(code.length === digits);
-                  if (complete()) void send();
+                  actor.send({ type: "edit", code: input.value.replace(/\D/g, "").slice(0, digits) });
+                  if (complete()) send();
                 }}
               />
               <button class="btn primary pair-submit" type="submit" disabled={busy() || !complete()}>

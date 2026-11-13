@@ -1,4 +1,4 @@
-import { attach, For, memo, Show, signal } from "@reactre/core";
+import { attach, For, memo, Show } from "@reactre/core";
 import type { Child } from "@reactre/core/jsx-runtime";
 
 import {
@@ -20,6 +20,7 @@ import { ThemeSwitch } from "../components/theme-switch.tsx";
 import { dismissOnBackdrop } from "../dialog-backdrop.ts";
 import { tokenizeLines } from "../highlight.ts";
 import { icons } from "../icons.ts";
+import { valueState } from "../state/value.ts";
 import { store } from "../store.ts";
 import { applyTheme } from "../ui.ts";
 
@@ -133,8 +134,8 @@ function Choices(props: {
 /** One mounted form: selection signals update controls without recreating previews. */
 export function AppearanceForm() {
   const theme = memo(() => store.state().theme);
-  const [terminal, setTerminal] = signal(loadTermScheme());
-  const [code, setCode] = signal(loadCodeTheme());
+  const [terminal, setTerminal] = valueState(loadTermScheme());
+  const [code, setCode] = valueState(loadCodeTheme());
   const pick = (id: string): void => {
     applyTheme(id);
     store.set({ theme: id });

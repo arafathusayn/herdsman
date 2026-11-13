@@ -1,34 +1,45 @@
-import { For, Show, signal } from "@reactre/core";
+import { For, Show } from "@reactre/core";
 
 import { explain, services } from "../../sdk/index.ts";
+import { createRequest } from "../../state/request.ts";
+import { valueState } from "../../state/value.ts";
 import { Async, fieldValue, load, PageFrame } from "../load.tsx";
 
 const statuses = ["todo", "doing", "review", "done", "archived"];
 
 export function TasksPage() {
-  const projects = load(() => services().projects.list({}));
-  const [project, setProject] = signal("");
+  const projects = load((signal) => services().projects.list({}, { signal }));
+  const [project, setProject] = valueState("");
   const scope = () => (project() ? { scope: { project: project() } } : { all: true });
-  const state = load(() => services().tasks.list(scope()));
-  const [title, setTitle] = signal("");
-  const [problem, setProblem] = signal("");
-
-  const attempt = async (work: () => Promise<unknown>) => {
-    setProblem("");
-    try {
-      await work();
-      await state.reload();
-    } catch (error) {
-      setProblem(explain(error));
-    }
+  const state = load((signal) => services().tasks.list(scope(), { signal }));
+  const [title, setTitle] = valueState("");
+  const mutation = createRequest(
+    async (
+      input: { kind: "create" | "update"; project: string; task: string; title: string; status: string },
+      signal,
+    ) => {
+      if (input.kind === "create")
+        return services().tasks.create({ scope: { project: input.project }, title: input.title }, { signal });
+      return services().tasks.update(
+        { scope: { project: input.project }, task: input.task, status: input.status },
+        { signal },
+      );
+    },
+  );
+  const problem = () => (mutation.error() === undefined ? "" : explain(mutation.error()));
+  const update = async (project: string, task: string, status: string) => {
+    if (mutation.loading()) return;
+    const outcome = await mutation.run({ kind: "update", project, task, status, title: "" });
+    if (outcome.status === "done") await state.reload();
   };
-
-  const create = (event: Event) => {
+  const create = async (event: Event) => {
     event.preventDefault();
-    void attempt(async () => {
-      await services().tasks.create({ scope: { project: project() }, title: title().trim() });
-      setTitle("");
-    });
+    if (mutation.loading() || !project() || !title().trim()) return;
+    const sent = title().trim();
+    const outcome = await mutation.run({ kind: "create", project: project(), task: "", title: sent, status: "" });
+    if (outcome.status !== "done") return;
+    if (title().trim() === sent) setTitle("");
+    await state.reload();
   };
 
   return (
@@ -64,7 +75,7 @@ export function TasksPage() {
               <button
                 class="btn primary"
                 type="submit"
-                disabled={!title().trim() || !project()}
+                disabled={!title().trim() || !project() || mutation.loading()}
                 title={project() ? "" : "Pick a project first"}
               >
                 Add task
@@ -86,16 +97,11 @@ export function TasksPage() {
                       </div>
                       <select
                         aria-label={`Status of ${task.title}`}
+                        disabled={mutation.loading()}
                         onChange={(event) => {
                           // A list row's events are delegated, so currentTarget is the list.
                           const status = (event.target as HTMLSelectElement).value;
-                          void attempt(() =>
-                            services().tasks.update({
-                              scope: { project: task.project?.value ?? "" },
-                              task: task.slug ?? "",
-                              status,
-                            }),
-                          );
+                          void update(task.project?.value ?? "", task.slug ?? "", status);
                         }}
                       >
                         <For each={statuses} key={(status) => status}>

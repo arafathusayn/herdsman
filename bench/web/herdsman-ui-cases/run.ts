@@ -3,7 +3,7 @@
 // puppeteerAccess.ts): a fresh page per sample, warmups, CPU throttling where
 // set, a trace around a forced GC and the measured click, and the duration
 // from trace.ts. Apps are interleaved within each iteration, rotating which
-// goes first. Before timing, every app must render what herdsman-patch renders.
+// goes first. Before timing, every app must render what vanillajs-lite renders.
 //
 //   bun run.ts [--iterations 15] [--apps a,b] [--benchmarks x,y] [--force] [--vsync] [--traces]
 //              [--timeout 60] [--max-load <cores/2>]
@@ -23,14 +23,12 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFile
 import { cpus, loadavg } from "node:os";
 import { join } from "node:path";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
-import type { Size } from "./build.ts";
+import { CONTROL, REFERENCE, type Size } from "./build.ts";
 import { findChrome } from "./chrome.ts";
 import { distDir, serve } from "./serve.ts";
 import { computeDuration, type Duration, NotOneClick } from "./trace.ts";
 
 const CHROME = findChrome();
-const REFERENCE = "herdsman-patch";
-const CONTROL = "herdsman-patch-control";
 const resultsDir = join(import.meta.dir, "results");
 const started = Date.now();
 

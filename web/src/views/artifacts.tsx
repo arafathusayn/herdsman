@@ -1,4 +1,4 @@
-import { batch, For, memo, onCleanup, Show, signal } from "@reactre/core";
+import { batch, For, memo, onCleanup, Show } from "@reactre/core";
 import { map } from "@reactre/core/features/lists";
 
 import { listArtifacts, openArtifact } from "../api.ts";
@@ -7,6 +7,10 @@ import { Icon } from "../components/icons.tsx";
 import { fuzzy } from "../fuzzy.ts";
 import { icons } from "../icons.ts";
 import { ago } from "../model.ts";
+import { createPoll } from "../state/poll.ts";
+import { createRequest } from "../state/request.ts";
+import { valueState } from "../state/value.ts";
+import { errorMessage } from "../state/wire.ts";
 import { store } from "../store.ts";
 import type { Artifact } from "../types.ts";
 import { toast } from "../ui.ts";
@@ -56,106 +60,80 @@ export interface ArtifactsState {
 
 /** A route's cached list and search survive tab switches; only its active tab polls. */
 export function createArtifactsState(routeId: string): ArtifactsState {
-  const [state, setState] = signal<ArtifactSnapshot>({
-    items: [],
-    loaded: false,
-    error: "",
-    selected: "",
-    query: "",
-    active: 0,
-    open: new Map(),
-    body: { kind: "note", cls: "muted artifact-empty", text: "Pick a page to show it." },
-  });
-  const set = (patch: Partial<ArtifactSnapshot>): void => setState((current) => ({ ...current, ...patch }));
+  const [local, setState] = valueState({ selected: "", query: "", active: 0, open: new Map<string, boolean>() });
+  const [shownKey, setShownKey] = valueState("");
+  const list = createRequest(async (_, signal) => listArtifacts(routeId, signal));
+  const preview = createRequest(async (item: Artifact, signal) => ({
+    url: await openArtifact(routeId, item.root, item.path, signal),
+    title: item.path,
+  }));
   let search: HTMLInputElement | null = null;
-  let shownKey = "",
-    frameUrl = "";
-  let request = 0,
-    run = 0,
-    timer: ReturnType<typeof setTimeout> | undefined;
+  const items = () => list.data()?.artifacts ?? [];
+  const chosen = () =>
+    items().find((item) => artifactPath(item) === (local().selected || (items()[0] ? artifactPath(items()[0]!) : "")));
+  const body = (): ArtifactBody => {
+    if (!chosen())
+      return {
+        kind: "note",
+        cls: "muted artifact-empty",
+        text:
+          list.data() && local().selected
+            ? "This page is no longer in the route's workspace folders."
+            : "Pick a page to show it.",
+      };
+    if (preview.loading()) return { kind: "note", cls: "muted", text: "Loading…" };
+    if (preview.error() !== undefined) return { kind: "note", cls: "error", text: errorMessage(preview.error()) };
+    const frame = preview.data();
+    return frame ? { kind: "frame", ...frame } : { kind: "note", cls: "muted", text: "Loading…" };
+  };
+  const state = (): ArtifactSnapshot => ({
+    ...local(),
+    items: items(),
+    loaded: list.data() !== undefined || list.error() !== undefined,
+    error: list.error() === undefined ? "" : errorMessage(list.error()),
+    body: body(),
+  });
+  const set = (patch: Partial<ReturnType<typeof local>>): void => setState((current) => ({ ...current, ...patch }));
   const syncBody = (): void => {
-    const current = state();
-    const item = current.items.find(
-      (item) => artifactPath(item) === (current.selected || artifactPath(current.items[0]!)),
-    );
+    const item = chosen();
     if (!item) {
-      shownKey = "";
-      request++;
-      set({
-        body: {
-          kind: "note",
-          cls: "muted artifact-empty",
-          text:
-            current.loaded && current.selected
-              ? "This page is no longer in the route's workspace folders."
-              : "Pick a page to show it.",
-        },
-      });
+      setShownKey("");
+      preview.clear();
       return;
     }
     const key = JSON.stringify([artifactPath(item), item.modified]);
-    if (shownKey === key) return;
-    shownKey = key;
-    const id = ++request;
-    set({ body: { kind: "note", cls: "muted", text: "Loading…" } });
-    void openArtifact(routeId, item.root, item.path)
-      .then((url) => {
-        if (id !== request) return;
-        frameUrl = url;
-        set({ body: { kind: "frame", url, title: item.path } });
-      })
-      .catch((error: unknown) => {
-        if (id === request)
-          set({ body: { kind: "note", cls: "error", text: error instanceof Error ? error.message : String(error) } });
-      });
+    if (shownKey() === key) return;
+    setShownKey(key);
+    void preview.run(item);
   };
-  const load = async (): Promise<void> => {
-    try {
-      const result = await listArtifacts(routeId);
-      const items = result.artifacts ?? [];
-      const current = state();
-      if (!current.loaded || current.error || JSON.stringify(items) !== JSON.stringify(current.items)) {
-        batch(() => {
-          set({ items, loaded: true, error: "" });
-          syncBody();
-        });
-      }
-    } catch (error) {
-      set({ loaded: true, error: error instanceof Error ? error.message : String(error) });
-    }
-  };
+  const poll = createPoll(async (signal) => {
+    const outcome = await list.run(undefined);
+    if (!signal.aborted && outcome.status === "done") syncBody();
+    return refreshEvery;
+  }, refreshEvery);
   const stop = (): void => {
-    clearTimeout(timer);
-    timer = undefined;
-    run++;
-  };
-  const start = (): void => {
-    if (timer !== undefined) return;
-    const current = ++run;
-    const tick = async (): Promise<void> => {
-      await load();
-      if (timer !== undefined && current === run) timer = setTimeout(() => void tick(), refreshEvery);
-    };
-    timer = setTimeout(() => void tick(), 0);
+    poll.stop();
+    list.cancel();
+    if (preview.loading()) setShownKey("");
+    preview.cancel();
   };
   return {
     routeId,
     state,
-    start,
+    start: poll.start,
     stop,
     query: (query) => set({ query, active: 0 }),
     cursor: (active) => set({ active }),
     group: (root, open) => {
-      if (state().open.get(root) !== open) set({ open: new Map([...state().open, [root, open]]) });
+      if (local().open.get(root) !== open) set({ open: new Map([...local().open, [root, open]]) });
     },
-    update: (selected) => {
+    update: (selected) =>
       batch(() => {
-        if (state().selected !== selected) set({ selected });
+        if (local().selected !== selected) set({ selected });
         syncBody();
-      });
-    },
+      }),
     reload: () => {
-      shownKey = "";
+      setShownKey("");
       syncBody();
     },
     search: (input) => {
@@ -166,7 +144,8 @@ export function createArtifactsState(routeId: string): ArtifactsState {
       search?.select();
     },
     openTab: () => {
-      if (frameUrl) window.open(frameUrl, "_blank", "noopener,noreferrer");
+      const current = body();
+      if (current.kind === "frame") window.open(current.url, "_blank", "noopener,noreferrer");
     },
   };
 }
@@ -255,11 +234,20 @@ export function ArtifactsView(props: { state: ArtifactsState }) {
   const matches = memo(() =>
     snapshot()
       .items.map((item) => ({ item, match: fuzzy(query(), item.path) }))
-      .filter((entry): entry is { item: Artifact; match: NonNullable<ReturnType<typeof fuzzy>> } => !!entry.match)
+      .filter(
+        (
+          entry,
+        ): entry is {
+          item: Artifact;
+          match: NonNullable<ReturnType<typeof fuzzy>>;
+        } => !!entry.match,
+      )
       .sort((left, right) => right.match.score - left.match.score),
   );
   const active = memo(() => Math.min(snapshot().active, Math.max(0, matches().length - 1)));
-  const rows = map(matches, (entry) => entry, { keyed: (entry) => artifactPath(entry.item) });
+  const rows = map(matches, (entry) => entry, {
+    keyed: (entry) => artifactPath(entry.item),
+  });
   const groups = map(
     () => {
       const groups = new Map<string, Artifact[]>();

@@ -1,27 +1,28 @@
-import { signal } from "@reactre/core";
+import { createActor } from "@reactre/state";
 
 import { mountRoot } from "./components/mount-root.ts";
+import { observeActor } from "./state/observe.ts";
+import { tooltipMachine } from "./state/tooltip.machine.ts";
+import { valueState } from "./state/value.ts";
 
 // Delegate title discovery across app and modal roots. Reactre owns the
 // tooltip's content, visibility and placement; the installer owns listeners.
 const showDelay = 450;
-const warmFor = 600;
 const withTip = "[title], [data-tip]";
 const tipId = "herdsman-tooltip";
 
 interface TipState {
   text: string;
-  on: boolean;
   below: boolean;
   top: number;
   left: number;
 }
-function Tooltip(props: { state: () => TipState }) {
+function Tooltip(props: { state: () => TipState; visible: () => boolean }) {
   return (
     <div
       id={tipId}
       role="tooltip"
-      class={`tooltip${props.state().on ? " on" : ""}${props.state().below ? " below" : ""}`}
+      class={`tooltip${props.visible() ? " on" : ""}${props.state().below ? " below" : ""}`}
       style={{ top: `${props.state().top}px`, left: `${props.state().left}px` }}
     >
       {props.state().text}
@@ -41,25 +42,29 @@ function tipText(el: HTMLElement): string {
 
 /** Installs delegated mouse/keyboard tooltips; the disposer removes every resource. */
 export function installTooltips(): () => void {
-  const [state, setState] = signal<TipState>({ text: "", on: false, below: false, top: 0, left: 0 });
+  const [state, setState] = valueState<TipState>({
+    text: "",
+    below: false,
+    top: 0,
+    left: 0,
+  });
   let view: ReturnType<typeof mountRoot<"div">> | undefined;
   let target: HTMLElement | null = null;
-  let timer = 0,
-    warmUntil = 0,
-    stopped = false;
+  const actor = createActor(tooltipMachine);
+  const phase = observeActor(actor);
   const hide = (): void => {
-    window.clearTimeout(timer);
     if (target?.getAttribute("aria-describedby") === tipId) target.removeAttribute("aria-describedby");
-    if (state().on) {
-      setState({ ...state(), on: false });
-      warmUntil = Date.now() + warmFor;
-    }
+    actor.send({ type: "hide", now: Date.now() });
     target = null;
   };
   const show = (el: HTMLElement): void => {
     const text = tipText(el);
-    if (stopped || !text || !el.isConnected) return;
-    view ??= mountRoot("div", () => <Tooltip state={state} />);
+    if (actor.snapshot().state !== "placing") return;
+    if (!text || !el.isConnected) {
+      hide();
+      return;
+    }
+    view ??= mountRoot("div", () => <Tooltip state={state} visible={() => phase.read().state === "showing"} />);
     setState({ ...state(), text });
     // A modal sits in the top layer; its tooltip must be inside that modal.
     const parent = el.closest<HTMLElement>("dialog[open]") ?? document.body;
@@ -72,19 +77,25 @@ export function installTooltips(): () => void {
     const left = Math.min(Math.max(gap, rect.left + rect.width / 2 - width / 2), window.innerWidth - width - gap);
     setState({
       text,
-      on: true,
       below: above < gap,
       top: Math.round(above < gap ? rect.bottom + gap : above),
       left: Math.round(left),
     });
     el.setAttribute("aria-describedby", tipId);
+    actor.send({ type: "placed" });
   };
   const arm = (el: HTMLElement, delay: number): void => {
     hide();
     if (!tipText(el)) return;
     target = el;
-    timer = window.setTimeout(() => show(el), Date.now() < warmUntil ? 0 : delay);
+    actor.send({ type: "arm", now: Date.now(), delay });
   };
+  const off = actor.subscribe((snapshot) => {
+    if (snapshot.state === "placing") {
+      if (target) show(target);
+      else hide();
+    }
+  });
   const listeners: (() => void)[] = [];
   const listen = <K extends keyof DocumentEventMap>(
     type: K,
@@ -116,10 +127,12 @@ export function installTooltips(): () => void {
     if (event.key === "Escape" && target) hide();
   });
   return () => {
-    if (stopped) return;
-    stopped = true;
+    actor.send({ type: "close" });
     hide();
-    for (const remove of listeners) remove();
+    off();
+    phase.stop();
+    for (const remove of listeners.splice(0)) remove();
     view?.dispose();
+    view = undefined;
   };
 }

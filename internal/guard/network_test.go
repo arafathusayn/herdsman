@@ -905,6 +905,35 @@ func TestAdvisoryJobPassesOnCurrentPins(t *testing.T) {
 	}
 }
 
+func TestAdvisoryJobChecksTheWebCompilerInTheNPMEcosystem(t *testing.T) {
+	root := advisoryTree(t, "v1.0.0")
+	writeFile(t, filepath.Join(root, "web/vendor/oxc/provenance.json"), `[{"name":"oxc-parser","version":"0.156.0"}]`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var query struct {
+			Version string
+			Package struct{ Name, Ecosystem string }
+		}
+		if err := json.NewDecoder(r.Body).Decode(&query); err != nil {
+			http.Error(w, "bad query", http.StatusBadRequest)
+			return
+		}
+		if query.Package.Name == "oxc-parser" && query.Package.Ecosystem == "npm" && query.Version == "0.156.0" {
+			w.Write([]byte(`{"vulns":[{"id":"TEST-NPM-ADVISORY"}]}`))
+			return
+		}
+		if query.Package.Ecosystem != "Go" {
+			http.Error(w, "wrong ecosystem", http.StatusBadRequest)
+			return
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	out, err := runAdvisoryScript(t, root, server.URL)
+	if err == nil || !strings.Contains(out, "oxc-parser 0.156.0: TEST-NPM-ADVISORY") {
+		t.Fatalf("the web compiler advisory did not fail the gate: %v\n%s", err, out)
+	}
+}
+
 // An unanswered query is not a clean result.
 func TestAdvisoryJobFailsWhenOSVIsUnreachable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -1129,7 +1158,7 @@ func adrProblems(want int, files map[string]string, index string) []string {
 
 // adrRecordCount is the number of decisions recorded. A new decision raises it
 // and adds its record together.
-const adrRecordCount = 35
+const adrRecordCount = 36
 
 func TestEveryDecisionRecordIsIndexed(t *testing.T) {
 	entries, err := filepath.Glob(filepath.Join(repoRoot, "docs/adr/[0-9]*.md"))

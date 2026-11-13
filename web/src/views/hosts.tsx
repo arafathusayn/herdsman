@@ -1,4 +1,4 @@
-import { attach, batch, For, Show, signal } from "@reactre/core";
+import { attach, batch, For, Show } from "@reactre/core";
 import { map } from "@reactre/core/features/lists";
 import type { Child } from "@reactre/core/jsx-runtime";
 
@@ -15,6 +15,8 @@ import {
   upsert,
 } from "../hosts.ts";
 import { icons } from "../icons.ts";
+import { lifetime } from "../state/lifetime.ts";
+import { valueState } from "../state/value.ts";
 import { dismissOnBackdrop, toast } from "../ui.ts";
 
 const pairKey = "herdsman.pending-link";
@@ -24,10 +26,9 @@ const pairKey = "herdsman.pending-link";
  * rides along in session storage, so it never sits in the address bar.
  */
 export function switchTo(hs: Hosts, host: Host, token = ""): void {
-  hs.current = host.id;
   // The page starts over from the stored list, so a choice it cannot store
   // would come back as the old host.
-  if (!saveHosts(hs)) {
+  if (!saveHosts({ ...hs, current: host.id })) {
     toast(
       "This browser does not let the app store its hosts, so it cannot switch. Allow site data and try again.",
       "error",
@@ -53,7 +54,10 @@ export function keepPendingLink(url: string, token: string): void {
 /** A pairing token that a switch left for the host it named. */
 export function takePendingLink(url: string): string {
   try {
-    const v = JSON.parse(sessionStorage.getItem(pairKey) ?? "null") as { url?: string; token?: string } | null;
+    const v = JSON.parse(sessionStorage.getItem(pairKey) ?? "null") as {
+      url?: string;
+      token?: string;
+    } | null;
     sessionStorage.removeItem(pairKey);
     return v?.url === url && v.token ? v.token : "";
   } catch {
@@ -76,9 +80,9 @@ export interface HostsState {
   reload: () => void;
 }
 
-/** A dialog owns one signal snapshot; edits never invalidate the app. */
+/** A dialog owns one actor snapshot; edits never invalidate the app. */
 export function hostsState(): HostsState {
-  const [state, setState] = signal<HostsFormState>({
+  const [state, setState] = valueState<HostsFormState>({
     host: "",
     name: "",
     note: "",
@@ -102,7 +106,10 @@ function AddForm(props: { form: HostsState }) {
     const link = parseLink(raw, location.origin);
     const url = link?.url ?? normalizeUrl(raw);
     if (!url) {
-      props.form.set({ noteError: true, note: "That is not a host address or a pairing link." });
+      props.form.set({
+        noteError: true,
+        note: "That is not a host address or a pairing link.",
+      });
       return;
     }
     const hosts = loadHosts();
@@ -135,7 +142,11 @@ function AddForm(props: { form: HostsState }) {
           aria-label="Pairing link or host address"
           autocomplete="off"
           value={state().host}
-          onInput={(event) => props.form.set({ host: (event.currentTarget as HTMLInputElement).value })}
+          onInput={(event) =>
+            props.form.set({
+              host: (event.currentTarget as HTMLInputElement).value,
+            })
+          }
         />
         <input
           class="input"
@@ -143,7 +154,11 @@ function AddForm(props: { form: HostsState }) {
           placeholder="Name (optional)"
           aria-label="Host name"
           value={state().name}
-          onInput={(event) => props.form.set({ name: (event.currentTarget as HTMLInputElement).value })}
+          onInput={(event) =>
+            props.form.set({
+              name: (event.currentTarget as HTMLInputElement).value,
+            })
+          }
         />
         <button class="btn primary" type="submit">
           Add
@@ -344,10 +359,9 @@ function showScreen(root: HTMLElement, content: () => Child): () => void {
 /** Ask before a link grants a new host access to the browser's agents. */
 export function confirmHost(root: HTMLElement, url: string): Promise<boolean> {
   return new Promise((resolve) => {
-    let answered = false;
+    const answered = lifetime();
     const answer = (value: boolean): void => {
-      if (answered) return;
-      answered = true;
+      if (!answered.close()) return;
       resolve(value);
     };
     showScreen(root, () => (

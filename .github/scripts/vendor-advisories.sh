@@ -9,16 +9,20 @@ root=${1:-.}
 api=${OSV_API:-https://api.osv.dev/v1/query}
 
 # vendor/ repeats the VENDOR.md of a replaced module, so pins are deduplicated.
-pins=$({ find "$root/third_party" "$root/vendor" -name VENDOR.md 2>/dev/null || true; } |
+pins=$({ { find "$root/third_party" "$root/vendor" -name VENDOR.md 2>/dev/null || true; } |
   while read -r file; do
     awk -v file="$file" '
       /^- Module: / { module = $3 }
       /^- Version: / { version = $3 }
       END {
         if (module == "" || version == "") { print "unreadable " file; exit }
-        print module, version
+        print module, version, "Go"
       }' "$file"
-  done | sort -u)
+  done;
+  if [[ -f "$root/web/vendor/oxc/provenance.json" ]]; then
+    jq -r '.[] | "\(.name) \(.version) npm"' "$root/web/vendor/oxc/provenance.json";
+  fi
+} | sort -u)
 
 if [[ -z $pins ]]; then
   echo "vendor-advisories: no VENDOR.md under $root" >&2
@@ -26,13 +30,13 @@ if [[ -z $pins ]]; then
 fi
 
 status=0
-while read -r module version; do
+while read -r module version ecosystem; do
   if [[ $module == unreadable ]]; then
     echo "vendor-advisories: no Module or Version in $version" >&2
     exit 2
   fi
-  query=$(jq -cn --arg name "$module" --arg version "$version" \
-    '{package: {name: $name, ecosystem: "Go"}, version: $version}')
+  query=$(jq -cn --arg name "$module" --arg version "$version" --arg ecosystem "$ecosystem" \
+    '{package: {name: $name, ecosystem: $ecosystem}, version: $version}')
   if ! answer=$(curl -fsS --max-time 60 -d "$query" "$api"); then
     echo "vendor-advisories: OSV did not answer for $module" >&2
     exit 2

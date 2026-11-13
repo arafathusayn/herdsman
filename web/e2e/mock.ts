@@ -135,10 +135,28 @@ export interface Mock {
   setStatus(pane: string, status: Status): void;
   /** Pushes one activity event to every open stream. */
   push(e: ReturnType<typeof entry>): void;
+  /** Change terminal output without replacing its existing ANSI runs. */
+  appendOutput(text: string): void;
   stop(): void;
 }
 
-export function startMock(dist: string): Mock {
+export function startMock(
+  dist: string,
+  load: { routes: number; logLines: number; terminalLines?: number } = { routes: 0, logLines: 0 },
+): Mock {
+  const history = Array.from({ length: load.routes }, (_, i) =>
+    route(`history-${i}`, false, {
+      run_state: Array.from({ length: load.logLines }, (_, n) => ({
+        time: "10:00",
+        text: `Log ${n} ${"output ".repeat(20)}`,
+      })),
+    }),
+  );
+  let output = Array.from(
+    { length: load.terminalLines ?? 0 },
+    (_, i) => `${i} ${"\u001b[32mgreen\u001b[0m plain ".repeat(10)}`,
+  ).join("\n");
+  let outputRevision = 1;
   const statuses: Record<string, Status> = { p1: "working", p2: "working" };
   const state = () => ({
     herdr: { version: "0.9", protocol: 1 },
@@ -187,6 +205,7 @@ export function startMock(dist: string): Mock {
         older_run_state: 3,
       }),
       route("old", false),
+      ...history,
     ],
   });
   // Enough activity to scroll the Activity tab.
@@ -218,6 +237,10 @@ export function startMock(dist: string): Mock {
     push(e) {
       entries.push(e);
       send("entry", e);
+    },
+    appendOutput(text) {
+      output += text;
+      outputRevision++;
     },
     stop: () => server.stop(true),
   };
@@ -252,6 +275,14 @@ export function startMock(dist: string): Mock {
     }
     if (p === "/api/pair" && req.method === "POST")
       return Response.json({ status: "pairing", error: "That code is wrong.", left: 2 });
+    if (p.startsWith("/api/pane/") && load.terminalLines) {
+      const etag = `"screen-${outputRevision}"`;
+      if (req.headers.get("If-None-Match") === etag) return new Response(null, { status: 304 });
+      return Response.json(
+        { pane_id: "p2", text: output, revision: outputRevision, truncated: false },
+        { headers: { ETag: etag } },
+      );
+    }
     if (p === "/api/pair") return Response.json({ status: mock.mode });
     if (p === "/api/session" && req.method === "POST") return Response.json({ status: "paired" });
     if (p === "/api/messages") return Response.json({ configured: false, messages: [] });
