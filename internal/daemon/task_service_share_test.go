@@ -120,3 +120,22 @@ func TestNewWarnsWhenTheFolderCannotBeBroughtOver(t *testing.T) {
 		})
 	}
 }
+
+func TestConfiguredSharesReplaceDetectedFolders(t *testing.T) {
+	for _, listed := range []string{`[]`, `["cache"]`} {
+		t.Run(listed, func(t *testing.T) {
+			s, repo := shareRepo(t, "target/\ncache/\n")
+			writeShareFile(t, filepath.Join(repo, "target", "cache"), "detected")
+			writeShareFile(t, filepath.Join(repo, "cache", "blob"), "explicit")
+			writeSetup(t, repo, "[setup]\nshare = "+listed+"\n")
+			resp := newShareTask(t, s, repo, false)
+			if _, err := os.Stat(filepath.Join(resp.Path, "target")); !os.IsNotExist(err) {
+				t.Fatalf("explicit share list did not replace detection: %v", err)
+			}
+			_, err := os.Stat(filepath.Join(resp.Path, "cache", "blob"))
+			if listed == `[]` && !os.IsNotExist(err) || listed != `[]` && err != nil {
+				t.Fatalf("explicit share list %s: %v", listed, err)
+			}
+		})
+	}
+}

@@ -141,7 +141,9 @@ func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error
 	r.envFiles = setup.GetEnv()
 	// Detected shares are handled from the new checkout by finishNew. Only
 	// explicitly listed shares should receive configuration diagnostics.
-	if loaded.Sources["setup.share"] != config.SourceDefault {
+	shareSource := loaded.Sources["setup.share"]
+	r.shareSet = shareSource != "" && shareSource != config.SourceDefault
+	if r.shareSet {
 		r.shared = setup.GetShare()
 	}
 	if setup.Ports != nil {
@@ -153,7 +155,9 @@ func (s *WorktreeService) loadSettings(ctx context.Context, r *repository) error
 	// A command only detected from the repository's files comes back as a
 	// default. setupPlan offers it; only one a person wrote is a hook to approve.
 	install := strings.TrimSpace(loaded.Config.GetSetup().GetInstall())
-	if install != "" && loaded.Sources["setup.install"] != config.SourceDefault {
+	installSource := loaded.Sources["setup.install"]
+	r.installSet = installSource != "" && installSource != config.SourceDefault
+	if install != "" && r.installSet {
 		if r.hooks == nil {
 			r.hooks = hooks.Config{}
 		}
@@ -171,6 +175,9 @@ func (s *WorktreeService) setupPlan(r *repository, vars wtree.Vars, detected wtr
 			return nil, nil, err
 		}
 		return plan, []string{plan[0][0].Rendered}, nil
+	}
+	if r.installSet {
+		return nil, nil, nil
 	}
 	var plan hooks.Plan
 	for _, install := range detected.Install {

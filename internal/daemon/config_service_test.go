@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/arafathusayn/herdsman/internal/gitrun"
+	"github.com/arafathusayn/herdsman/internal/wtree"
 	"github.com/arafathusayn/herdsman/sdk/config"
 	configv1 "github.com/arafathusayn/herdsman/sdk/config/v1"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
@@ -420,5 +421,23 @@ func TestEveryApprovalUsesTheStoreTheConfigCommandReads(t *testing.T) {
 	}
 	if got := (&SuggestService{}).approvals().Path; got != want {
 		t.Fatalf("suggest: %s", got)
+	}
+}
+
+func TestEmptyInstallDisablesDetectedCommand(t *testing.T) {
+	folder := t.TempDir()
+	mustWrite(t, filepath.Join(folder, "repo", "bun.lock"), "{}\n")
+	mustWrite(t, filepath.Join(folder, "herdsman.config.toml"), "[setup]\ninstall = \"\"\n")
+	r, err := settingsIn(t, folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detected, err := wtree.Detect(r.main)
+	if err != nil || len(detected.Install) == 0 {
+		t.Fatalf("expected detected install: %+v, %v", detected, err)
+	}
+	plan, commands, err := (&WorktreeService{}).setupPlan(r, wtree.Vars{}, detected)
+	if err != nil || len(plan) != 0 || len(commands) != 0 {
+		t.Fatalf("explicit empty install ran detection: %+v, %v, %v", plan, commands, err)
 	}
 }

@@ -310,9 +310,10 @@ type repository struct {
 	route   string
 	environ []string
 	// What setup.env and setup.share list, and setup.ports.
-	envFiles, shared []string
-	ports            int
-	project          string
+	envFiles, shared     []string
+	shareSet, installSet bool
+	ports                int
+	project              string
 }
 
 func (r *repository) close() { r.state.Close() }
@@ -830,7 +831,11 @@ func (s *WorktreeService) finishNew(ctx context.Context, r *repository, req Work
 			return err
 		}
 		listed := slices.Concat(r.envFiles, r.shared)
-		for _, folder := range detected.Share {
+		shares := detected.Share
+		if r.shareSet {
+			shares = nil
+		}
+		for _, folder := range shares {
 			if slices.ContainsFunc(listed, func(name string) bool { return filepath.Clean(name) == folder }) {
 				continue
 			}
