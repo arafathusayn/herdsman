@@ -76,6 +76,16 @@ The reference markup is `apps/herdsman-patch/main.ts`. In short:
 
 Lanes come from `lanes(members)` in `shared/state.ts`.
 
+## Reactre core + state
+
+`apps/reactre-state` is one application combining the current vendored
+`@reactre/core` and `@reactre/state`, with snapshots owned by a compiled actor
+and core's native keyed rendering. See its [source and reproduction notes](apps/reactre-state/README.md).
+It uses the same driver, data, canonical DOM gate, workloads and A/A control.
+Measured comparisons and their limitations are recorded in
+[PR #122](https://github.com/arafathusayn/herdsman/pull/122); a speed ranking is
+only claimed when supported by the complete run and its noise floor.
+
 ## Operations
 
 `board` builds a new world and renders the Team tab (creation). The others

@@ -104,7 +104,7 @@ export function registerReactreTests(): void {
 
 // Machine modules contain no JSX. Both Bun.build and Bun's runtime load them
 // through the same upstream compiler before the TSX plugin claims app files.
-function stateCompiler(dev: boolean): BunPlugin {
+export function stateCompiler(dev: boolean): BunPlugin {
   return {
     name: "herdsman-state",
     setup(build) {

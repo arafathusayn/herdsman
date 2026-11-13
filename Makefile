@@ -127,6 +127,8 @@ web-check:
 	cd web && bun check --no-pretty --typeRoots "$(BUN_GLOBAL)"
 	cd web && bun check --no-pretty -p tsconfig.strict.json --typeRoots "$(BUN_GLOBAL)"
 	cd web && bun check --no-pretty -p ../bench/web/herdsman-ui-cases/legacy/tsconfig.json --typeRoots "$(BUN_GLOBAL)"
+	cd web && bun check --no-pretty -p ../bench/web/herdsman-ui-cases/apps/reactre-state/tsconfig.json --typeRoots "$(BUN_GLOBAL)"
+	cd bench/web/herdsman-ui-cases && bun fmt --check apps/reactre-state
 	cd web && bun test
 	cd web && bun test ../bench/web/herdsman-ui-cases/legacy
 
