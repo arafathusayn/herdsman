@@ -10,8 +10,12 @@ Every fresh driver snapshot enters a compiled state actor. The upstream
 The finite benchmark contracts are directly typed, unlike Herdsman's SDK
 boundary, which also needs to encode optional fields and collections.
 
-The active tab derives a keyed row projection. It visits every input row and
-compares that row's fields, retaining equal rows for core's keyed rendering.
+Team, Activity and Checklist derive keyed row projections. They visit every
+input row and compare that row's fields, retaining equal rows for core's
+keyed rendering. Log renders directly from the actor: its key already
+contains every displayed field. Native element rows let the compiler use
+core's specialized list path, and a keyed selector limits selection work to
+the previously and newly selected cards.
 This is ordinary per-key reconciliation, permitted by the contract and also
 used by the other entries. It never compares whole snapshots, reads operation
 names, caches operation results or skips the actor transition. Tabs dispose

@@ -1,4 +1,4 @@
-import { attach, For, memo, Show } from "@reactre/core";
+import { attach, For, memo, selector, Show } from "@reactre/core";
 import { useActor } from "@reactre/state/signals";
 
 import { start } from "../../shared/driver.ts";
@@ -15,37 +15,8 @@ import {
 import { rows } from "./rows.ts";
 import { viewMachine } from "./view.machine.ts";
 
-function cardView(
-  m: Member,
-  selected: () => boolean,
-  onSelect: (pane: string) => void,
-) {
-  const task = m.task === null ? null : <div class="card-task">{m.task}</div>;
-  return (
-    <button
-      class={`card r-${m.role} s-${m.status}${selected() ? " selected" : ""}`}
-      title={`Open ${m.title} (${m.pane})`}
-      data-pane={m.pane}
-      onClick={() => onSelect(m.pane)}
-    >
-      <div class="card-top">
-        <span class="card-title">{m.title}</span>
-        <span class={`pill s-${m.status}`}>
-          <span class="dot" aria-hidden="true" />
-          {statusLabel[m.status]}
-        </span>
-      </div>
-      {task}
-      <div class="card-sub">{m.sub}</div>
-      <div class="card-foot">
-        <code>{m.pane}</code>
-        <span class="muted">{m.tab}</span>
-        <span class="muted clip" title={m.term}>
-          {m.term}
-        </span>
-      </div>
-    </button>
-  );
+function cardTask(task: string | null) {
+  return task === null ? null : <div class="card-task">{task}</div>;
 }
 
 function Team(props: {
@@ -53,6 +24,7 @@ function Team(props: {
   selected: string | null;
   onSelect(pane: string): void;
 }) {
+  const selected = selector(() => props.selected);
   const members = rows(
     () => props.members,
     (member) => member.pane,
@@ -79,9 +51,31 @@ function Team(props: {
                 key={(m) => m.pane}
                 fallback={<p class="lane-empty">None</p>}
               >
-                {(m) =>
-                  cardView(m, () => props.selected === m.pane, props.onSelect)
-                }
+                {(m) => (
+                  <button
+                    class={`card r-${m.role} s-${m.status}${selected(m.pane) ? " selected" : ""}`}
+                    title={`Open ${m.title} (${m.pane})`}
+                    data-pane={m.pane}
+                    onClick={() => props.onSelect(m.pane)}
+                  >
+                    <div class="card-top">
+                      <span class="card-title">{m.title}</span>
+                      <span class={`pill s-${m.status}`}>
+                        <span class="dot" aria-hidden="true" />
+                        {statusLabel[m.status]}
+                      </span>
+                    </div>
+                    {cardTask(m.task)}
+                    <div class="card-sub">{m.sub}</div>
+                    <div class="card-foot">
+                      <code>{m.pane}</code>
+                      <span class="muted">{m.tab}</span>
+                      <span class="muted clip" title={m.term}>
+                        {m.term}
+                      </span>
+                    </div>
+                  </button>
+                )}
               </For>
             </section>
           )}
@@ -95,7 +89,7 @@ type ViewState = {
   [K in keyof State]: State[K] extends (infer V)[] ? readonly V[] : State[K];
 };
 
-function eventView(e: Event) {
+function eventBody(e: Event) {
   const who = e.who === null ? null : <strong>{e.who}</strong>;
   const body =
     e.source === "web" ? (
@@ -117,12 +111,7 @@ function eventView(e: Event) {
         {who}
       </>
     );
-  return (
-    <li class={e.source}>
-      <time datetime={e.at}>{e.clock}</time>
-      <p class="event">{body}</p>
-    </li>
-  );
+  return body;
 }
 
 function Activity(props: { state: ViewState }) {
@@ -130,7 +119,12 @@ function Activity(props: { state: ViewState }) {
   return (
     <ol class="timeline activity">
       <For each={items()} key={eventKey}>
-        {(e) => eventView(e)}
+        {(e) => (
+          <li class={e.source}>
+            <time datetime={e.at}>{e.clock}</time>
+            <p class="event">{eventBody(e)}</p>
+          </li>
+        )}
       </For>
     </ol>
   );
@@ -163,10 +157,9 @@ function Checklist(props: { state: ViewState }) {
 }
 
 function Log(props: { state: ViewState }) {
-  const items = rows(() => props.state.log, lineKey);
   return (
     <ol class="timeline">
-      <For each={items()} key={lineKey}>
+      <For each={props.state.log} key={lineKey}>
         {(l) => (
           <li class={l.text.startsWith("web:") ? "web" : ""}>
             <time>{l.time}</time>

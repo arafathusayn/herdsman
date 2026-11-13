@@ -18,13 +18,15 @@ export function rows<T extends object>(
       const value = input[i]!;
       const key = keyOf(value);
       const old = previous.get(key);
-      const fields = Object.keys(value) as (keyof T)[];
-      const row =
-        old &&
-        fields.length === Object.keys(old).length &&
-        fields.every((field) => old[field] === value[field])
-          ? old
-          : value;
+      let row = value;
+      if (old) {
+        const fields = Object.keys(value) as (keyof T)[];
+        if (
+          fields.length === Object.keys(old).length &&
+          fields.every((field) => old[field] === value[field])
+        )
+          row = old;
+      }
       next.set(key, row);
       items.push(row);
       if (list[i] !== row) same = false;
