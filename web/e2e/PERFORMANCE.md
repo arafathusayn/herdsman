@@ -18,14 +18,14 @@ waiting for its last visible entry and navigating back to the checklist.
 Measured on macOS arm64, comparing the initial migration at `ad48eb20` with
 the optimized implementation using the same runner and fixture:
 
-| Work | Before | After |
-| --- | ---: | ---: |
-| Tab handler, median of 12 | 34.5 ms | 2.6 ms |
-| Theme handler, median of 12 | 32.2 ms | 0.8 ms |
-| Composer input handler, median of 23 | 57.6 ms | 0.7 ms |
-| Terminal DOM mutations while typing 23 characters | 184,046 | 0 |
-| Activity burst through visible completion | 1,167 ms | 111 ms |
-| Longest observed task in the complete probe | 1,019 ms | 173 ms |
+| Work                                              |   Before |  After |
+| ------------------------------------------------- | -------: | -----: |
+| Tab handler, median of 12                         |  34.5 ms | 2.6 ms |
+| Theme handler, median of 12                       |  32.2 ms | 0.8 ms |
+| Composer input handler, median of 23              |  57.6 ms | 0.7 ms |
+| Terminal DOM mutations while typing 23 characters |  184,046 |      0 |
+| Activity burst through visible completion         | 1,167 ms | 111 ms |
+| Longest observed task in the complete probe       | 1,019 ms | 173 ms |
 
 These are diagnostic samples, not promises for every device or a comparison
 with main before the state migration. Initial loading of the deliberately
