@@ -68,3 +68,11 @@ the upstream results do not justify changing every bridge or claiming a new rank
 Re-run web checks, production browser checks, the embedded build and a full
 five-iteration benchmark with the existing competitors, gates and A/A control.
 Record new source provenance separately from the earlier measurements above.
+
+Validation on implementation `1da043c334b32a928399f0733585ddd5249db475`: all 345 web tests,
+type/format/ownership checks, 316 production browser checks and the embedded
+build pass. The full five-iteration run passes all 960 samples and correctness
+gates; state ranks third and signals fourth. The state top-five target is met,
+while signals' top-two target remains unmet. The 0.833% A/A gap exceeds the
+0.27% gap between the Reactre entries. See [the new report](../bench/web/herdsman-ui-cases/REACTRE6-RESULTS.md).
+These results do not establish a causal improvement over the earlier run.

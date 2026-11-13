@@ -11,7 +11,7 @@ entries or timing errors. No samples were discarded. The A/A control gap is
 Raw JSON: `results/2026-11-13T19-33-30-130Z.json` (ignored generated output).
 SHA-256: `8bf5201af461d9db1bda2b24cfc90ab2772cd91ede7147605b99c1ea1c66c3cd`.
 The tables below are the runner's report, with documentation formatting only.
-See [the leaderboard and interpretation](README.md#recorded-five-iteration-comparison).
+See [the leaderboard and interpretation](README.md#previous-five-iteration-comparison).
 
 ## herdsman-cases, 2026-11-13T19:33:30.130Z
 

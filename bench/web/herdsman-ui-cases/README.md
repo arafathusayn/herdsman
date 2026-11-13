@@ -127,6 +127,59 @@ only claimed when supported by the complete run and its noise floor.
 ## Recorded five-iteration comparison
 
 Measured on **2026-11-14 (Asia/Dhaka)** from source
+`1da043c334b32a928399f0733585ddd5249db475`, with Reactre pinned to
+`f0cb6cb9f7d9c9a96c25fb25ece2d54adb702c27` (upstream PRs #2–#6).
+Chrome 157.0.8103.78, puppeteer-core 25.16.0, and the unchanged
+4× CPU throttling where marked. All **15 implementations plus the identical
+vanillajs-lite-control**, **12 workloads**, and **5 iterations (960 samples)**
+completed. All 16 correctness gates and 192 retained-node checks passed;
+there were no invalid entries, timing errors or discarded samples.
+The control is excluded from ranks.
+
+| Rank | Implementation                  | Geometric mean of relative median times ↓ | JavaScript gzip bytes |
+| ---: | ------------------------------- | ----------------------------------------: | --------------------: |
+|    1 | vanillajs-lite                  |                                  1.039537 |                 4,831 |
+|    2 | vanillajs                       |                                  1.047349 |                 4,607 |
+|    3 | Reactre core + state            |                                  1.073993 |                11,073 |
+|    4 | Reactre core + built-in signals |                                  1.076882 |                10,469 |
+|    5 | doohtml-dp                      |                                  1.101990 |                 5,812 |
+|    6 | re                              |                                  1.124763 |                 7,260 |
+|    7 | preact                          |                                  1.135094 |                 7,494 |
+|    8 | sonnet                          |                                  1.142788 |                 4,659 |
+|    9 | solid                           |                                  1.159203 |                10,037 |
+|   10 | vue-vapor                       |                                  1.174451 |                32,021 |
+|   11 | thane                           |                                  1.185160 |                 8,063 |
+|   12 | vue                             |                                  1.200701 |                25,743 |
+|   13 | preact-signals                  |                                  1.242008 |                11,792 |
+|   14 | solid-2                         |                                  1.301736 |                27,527 |
+|   15 | react                           |                                  1.445297 |                69,710 |
+
+Core + state ranks **3/15** and core + signals **4/15**. Their composite times
+are **4.51%** and **4.26%** lower than `re` in this run.
+**The signals top-two target was not met; the state top-five target was met.**
+
+The identical-build A/A control gap is **0.833%**. State is 2.54% behind
+second place and signals 2.82%. The 0.27% gap between the Reactre entries
+is below the control gap and does not establish a repeatable ordering.
+Five samples per workload on a shared workstation remain limited evidence;
+a complete 16-iteration timing-position rotation is a stronger follow-up.
+
+[Full workload results, retained nodes, sizes and provenance](REACTRE6-RESULTS.md).
+Raw output remains under ignored `results/2026-11-13T20-19-15-609Z.json` and `.md`.
+Reproduce with `bun build.ts`, then `bun run.ts --iterations 5` at the source
+revision above. Competitors, workloads, gates, throttling and load safeguards
+were unchanged; the runner briefly waited for system load to fall.
+
+This update adopts upstream's last-reader allocation reduction and selector
+comparator fix. Herdsman's actor bridges are unchanged. Signals and state gzip
+sizes fall by 25 and 21 bytes respectively. This run is not a paired before/after
+experiment: do not subtract independently normalized scores or attribute ranking
+changes to the vendor update. Upstream microbenchmarks are not Herdsman latency
+or ranking guarantees.
+
+## Previous five-iteration comparison
+
+Measured on **2026-11-14 (Asia/Dhaka)** from source
 `c4eb85b300a220cc5cf99da7206f93052bd8a61c`, with Reactre pinned to
 `63542a92765fbd401e37ce3b99fe47f429e2cd0f` (upstream PRs #2–#5).
 Chrome 157.0.8103.78, puppeteer-core 25.16.0, and the unchanged
