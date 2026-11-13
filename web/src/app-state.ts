@@ -1,3 +1,5 @@
+import { batch, memo } from "@reactre/core";
+
 import { nextView } from "./model.ts";
 import { valueState } from "./state/value.ts";
 import type { Channel, Entry, State } from "./types.ts";
@@ -30,25 +32,49 @@ export interface App {
 
 /** Immutable application snapshots, owned by a Reactre state actor. */
 export function createAppState(initial: App, navigate: (view: View, push: boolean) => void = () => {}) {
-  const [state, setState] = valueState(initial);
+  // Independently changing domains must not serialize the server's complete
+  // route/log history on every click, stream entry or connection heartbeat.
+  const [server, setServer] = valueState(initial.server);
+  const [entries, setEntries] = valueState(initial.entries);
+  const [connected, setConnected] = valueState(initial.connected);
+  const [view, setView] = valueState(initial.view);
+  const [theme, setTheme] = valueState(initial.theme);
+  const [fatal, setFatal] = valueState(initial.fatal);
+  const [channel, setChannel] = valueState(initial.channel);
+  const state = memo((): App =>
+    Object.freeze({
+      server: server(),
+      entries: entries(),
+      connected: connected(),
+      view: view(),
+      theme: theme(),
+      fatal: fatal(),
+      channel: channel(),
+    }),
+  );
   return {
     state,
     get app(): App {
       return state();
     },
     set(patch: Partial<App>): void {
-      setState((app) => ({ ...app, ...patch }));
+      batch(() => {
+        if ("server" in patch) setServer(patch.server!);
+        if ("entries" in patch) setEntries(patch.entries!);
+        if ("connected" in patch) setConnected(patch.connected!);
+        if ("view" in patch) setView(patch.view!);
+        if ("theme" in patch) setTheme(patch.theme!);
+        if ("fatal" in patch) setFatal(patch.fatal!);
+        if ("channel" in patch) setChannel(patch.channel!);
+      });
     },
     go(patch: Partial<View>, push = true): void {
-      const view = nextView(state().view, patch);
-      navigate(view, push);
-      setState((app) => ({ ...app, view }));
+      const next = nextView(view(), patch);
+      navigate(next, push);
+      setView(next);
     },
     addEntries(entries: Entry[]): void {
-      setState((app) => ({
-        ...app,
-        entries: [...app.entries, ...entries].slice(-400),
-      }));
+      setEntries((previous) => [...previous, ...entries].slice(-400));
     },
   };
 }

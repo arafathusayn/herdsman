@@ -23,8 +23,10 @@ Upstream: Reactre main, `8bae29b9fce00ab1e192f906e15191c6057550d7` (merged state
 
 ## Validation log
 
-- `make web-check`: formatting, SDK and state ownership guards, normal/strict types, 314 app tests and 82 legacy tests passed.
-- `make web-e2e`: 303 Chrome checks passed, including tab exit/reopen, pairing, dialogs, route submission, terminal input, artifacts and docs.
+- `make web-check`: formatting, SDK and state ownership guards, normal/strict types, 317 app tests and 82 legacy tests passed.
+- `make web-e2e`: 309 Chrome checks passed, including tab exit/reopen, pairing, dialogs, route submission, terminal input, artifacts, docs and large-load responsiveness regressions.
 - `make build`, Go race tests, Go vet/staticcheck and repository guards passed. The ADR guard records the new decision explicitly.
 - OXC reproduced from eight verified npm archives with identical file hashes. Installation passed with an empty cache and network disabled. OSV reported no advisories for the vendored Go/npm pins.
 - Architecture, tradeoffs, ownership inventory and workflow diagrams: [ADR 0032](../docs/adr/0032-actor-owned-web-state.md). CI and review readiness must be verified on the PR's latest head separately.
+- Profiled and removed repeated whole-application serialization, terminal palette invalidation and per-run ANSI teardown overhead. [Measured results and reproduction](../web/e2e/PERFORMANCE.md).
+- CI identified GO-2026-6859 in the existing Go 1.27.3 pin. Updated the module/workspace toolchain to 1.27.4; the local vulnerability gate passes without exemptions.

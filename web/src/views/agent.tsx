@@ -1,4 +1,4 @@
-import { effect, For, memo, onCleanup, Show, untrack } from "@reactre/core";
+import { batch, effect, For, memo, onCleanup, Show, untrack } from "@reactre/core";
 import { map } from "@reactre/core/features/lists";
 
 import { run } from "../actions.ts";
@@ -104,7 +104,7 @@ export interface AgentHandle {
 
 /** Owns terminal I/O and measurements; every displayed value lives in the signal snapshot. */
 class AgentController implements AgentHandle {
-  private readonly data = valueState<Omit<PanelSnapshot, "busy">>({
+  private readonly data = valueState<Omit<PanelSnapshot, "busy" | "screen">>({
     member: null,
     hasAdjutant: false,
     infoOpen: loadInfoOpen(),
@@ -116,12 +116,23 @@ class AgentController implements AgentHandle {
     typing: false,
     font: baseFont,
     lineHeight: "",
-    screen: { text: "", palette: null },
   });
+  // Composer and panel controls must never re-decode the screen/palette. A
+  // fresh palette identity would recreate thousands of unchanged ANSI spans.
+  private readonly screenText = valueState("");
+  private readonly screenPalette = valueState<Palette | null>(null);
+  private readonly screen = memo(() => ({ text: this.screenText[0](), palette: this.screenPalette[0]() }));
   private readonly sending = createRequest(async (action: Action, signal) => run(action, signal));
-  readonly state = (): PanelSnapshot => ({ ...this.data[0](), busy: this.sending.loading() });
+  readonly state = (): PanelSnapshot => ({ ...this.data[0](), screen: this.screen(), busy: this.sending.loading() });
   private set(patch: Partial<Omit<PanelSnapshot, "busy">>): void {
-    this.data[1]((state) => ({ ...state, ...patch }));
+    batch(() => {
+      const { screen, ...controls } = patch;
+      if (screen) {
+        this.screenText[1](screen.text);
+        this.screenPalette[1](screen.palette);
+      }
+      if (Object.keys(controls).length) this.data[1]((state) => ({ ...state, ...controls }));
+    });
   }
   get member() {
     return this.state().member;

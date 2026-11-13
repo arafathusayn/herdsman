@@ -37,8 +37,9 @@ data-only `wire` boundary encodes them losslessly into string contracts,
 including bigint and typed SDK/auth errors. It only decodes locally encoded
 data, not untrusted persisted snapshots. Decoded projections reject mutation,
 including collection methods. Workflow control fields remain explicit typed
-state/event contracts. Serialization costs allocation; no performance
-improvement is claimed. Direct normalized SDK contracts would require a
+state/event contracts. Serialization costs allocation. Independently changing
+domains use separate actors so small updates retain unrelated decoded
+projections. Direct normalized SDK contracts would require a
 separate upstream capability/design change.
 
 DOM nodes, observers, transport readers, callbacks, disposers, ID allocators and
@@ -53,6 +54,12 @@ Controllers now have explicit lifetimes and consistent stale-result rejection.
 The build gains a pinned parser and its integrity/advisory checks. Serialization
 adds allocation at the SDK boundary; browser behavior and performance-sensitive
 terminal interaction remain covered by regression tests.
+
+Application domains, terminal controls, output text and palette have separate
+actors. The ANSI view reconciles native node handles in one effect, avoiding
+per-run reactive owners while preserving unchanged spans. See the
+[responsiveness probe](../../web/e2e/PERFORMANCE.md) for measured before/after
+results, the large-load regression fixture and remaining initial-load costs.
 
 ## Ownership and cleanup
 

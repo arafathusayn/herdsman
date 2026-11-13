@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { batch, effect } from "@reactre/core";
+import { batch, effect, memo } from "@reactre/core";
 import { createRoot } from "@reactre/core/features/owner";
 
 import { type App, createAppState, type View } from "./app-state.ts";
@@ -82,4 +82,59 @@ test("the activity signal retains the newest 400 events in order", () => {
   expect(state.app.entries).toHaveLength(400);
   expect(state.app.entries[0]?.at).toBe("50");
   expect(state.app.entries.at(-1)?.at).toBe("449");
+});
+
+test("navigation and activity retain unrelated server projections without rerunning their readers", () => {
+  createRoot((dispose) => {
+    const start = initial();
+    start.server = {
+      herdr: { version: "test", protocol: 1 },
+      snapshot: {
+        version: "test",
+        protocol: 1,
+        focused_workspace_id: null,
+        focused_tab_id: null,
+        focused_pane_id: null,
+        workspaces: [],
+        tabs: [],
+        panes: [],
+        layouts: [],
+        agents: [],
+      },
+      routes: [],
+    };
+    const state = createAppState(start);
+    const first = state.app;
+    const server = memo(() => state.state().server);
+    let reads = 0;
+    effect(() => {
+      server();
+      reads++;
+    });
+    for (let i = 0; i < 30; i++) {
+      state.go({ tab: i % 2 ? "team" : "checklist" });
+      state.addEntries([{ at: String(i), source: "web", kind: "event" }]);
+      state.set({ theme: i % 2 ? "dark" : "light" });
+    }
+    expect(state.app.server).toBe(first.server);
+    expect(reads).toBe(1);
+    expect(first.entries).toHaveLength(0);
+    expect(state.app.entries).toHaveLength(30);
+    expect(Object.isFrozen(state.app)).toBe(true);
+    dispose();
+  });
+});
+
+test("a multi-domain update publishes one consistent snapshot", () => {
+  createRoot((dispose) => {
+    const state = createAppState(initial());
+    const seen: App[] = [];
+    effect(() => {
+      seen.push(state.state());
+    });
+    state.set({ connected: true, fatal: "offline", theme: "dark" });
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toMatchObject({ connected: true, fatal: "offline", theme: "dark" });
+    dispose();
+  });
 });
