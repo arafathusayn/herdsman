@@ -807,7 +807,13 @@ func (r *repository) shareIgnored(ctx context.Context, folder string, resp *Work
 // bringListed brings over what the configuration names. A listed path outside
 // the repository or one that is tracked work stays, and the response says so.
 func (r *repository) bringListed(ctx context.Context, listed []string, resp *WorktreeNewResponse) {
+	seen := make(map[string]bool)
 	for _, name := range listed {
+		name = filepath.Clean(name)
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
 		if !filepath.IsLocal(name) {
 			resp.Warnings = append(resp.Warnings, fmt.Sprintf("setup lists %s, which is outside the repository; left alone", name))
 			continue
@@ -833,10 +839,14 @@ func (s *WorktreeService) finishNew(ctx context.Context, r *repository, req Work
 		if err != nil {
 			return err
 		}
+		listed := slices.Concat(r.envFiles, r.shared)
 		for _, folder := range detected.Share {
+			if slices.ContainsFunc(listed, func(name string) bool { return filepath.Clean(name) == folder }) {
+				continue
+			}
 			r.shareIgnored(ctx, folder, resp)
 		}
-		r.bringListed(ctx, slices.Concat(r.envFiles, r.shared), resp)
+		r.bringListed(ctx, listed, resp)
 		setup, installs, err := s.setupPlan(r, vars, detected)
 		if err != nil {
 			return err
