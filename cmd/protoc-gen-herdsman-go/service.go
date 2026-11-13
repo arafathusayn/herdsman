@@ -124,7 +124,7 @@ func generateBinding(g *protogen.GeneratedFile, service *protogen.Service) {
 	g.P("if err != nil {")
 	g.P("return err")
 	g.P("}")
-	g.P(`httpReq.Header.Set("Content-Type", "application/proto")`)
+	g.P(`httpReq.Header.Set("Content-Type", `, rpcPkg.Ident("RequestContentType"), `(req))`)
 	g.P("httpRes, err := hc.Do(httpReq)")
 	g.P("if err != nil {")
 	g.P("return err")

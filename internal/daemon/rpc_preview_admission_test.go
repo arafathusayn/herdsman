@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/daemon/store"
+	"github.com/arafathusayn/herdsman/internal/ops"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )

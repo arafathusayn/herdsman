@@ -427,6 +427,9 @@ func (s *Server) callTool(ctx context.Context, t *tool, arguments json.RawMessag
 	if t.planOnly && !request.dryRun {
 		return failure(codePlanOnly, "tool "+t.Name+" only plans: call it with dry_run true; a person starts a route from a terminal")
 	}
+	if request.dryRun {
+		ctx = rpc.WithPreview(ctx)
+	}
 	answer, err := s.options.Call(ctx, t.procedure, request.body)
 	if err != nil {
 		failed := rpc.FromError(err)

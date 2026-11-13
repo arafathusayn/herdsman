@@ -62,7 +62,7 @@ func callManifestService(ctx context.Context, hc *http.Client, url string, req, 
 	if err != nil {
 		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/proto")
+	httpReq.Header.Set("Content-Type", rpc.RequestContentType(req))
 	httpRes, err := hc.Do(httpReq)
 	if err != nil {
 		return err
@@ -158,7 +158,7 @@ func callConfigCodecService(ctx context.Context, hc *http.Client, url string, re
 	if err != nil {
 		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/proto")
+	httpReq.Header.Set("Content-Type", rpc.RequestContentType(req))
 	httpRes, err := hc.Do(httpReq)
 	if err != nil {
 		return err
@@ -231,7 +231,7 @@ func callResourceDetectorService(ctx context.Context, hc *http.Client, url strin
 	if err != nil {
 		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/proto")
+	httpReq.Header.Set("Content-Type", rpc.RequestContentType(req))
 	httpRes, err := hc.Do(httpReq)
 	if err != nil {
 		return err
@@ -327,7 +327,7 @@ func callLandingBackendService(ctx context.Context, hc *http.Client, url string,
 	if err != nil {
 		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/proto")
+	httpReq.Header.Set("Content-Type", rpc.RequestContentType(req))
 	httpRes, err := hc.Do(httpReq)
 	if err != nil {
 		return err
@@ -400,7 +400,7 @@ func callMessageGeneratorService(ctx context.Context, hc *http.Client, url strin
 	if err != nil {
 		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/proto")
+	httpReq.Header.Set("Content-Type", rpc.RequestContentType(req))
 	httpRes, err := hc.Do(httpReq)
 	if err != nil {
 		return err
@@ -473,7 +473,7 @@ func callListColumnService(ctx context.Context, hc *http.Client, url string, req
 	if err != nil {
 		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/proto")
+	httpReq.Header.Set("Content-Type", rpc.RequestContentType(req))
 	httpRes, err := hc.Do(httpReq)
 	if err != nil {
 		return err

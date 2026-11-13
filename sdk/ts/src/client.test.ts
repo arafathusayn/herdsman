@@ -214,3 +214,18 @@ describe("over a Unix socket", () => {
     expect(reply).toEqual({ inbox: "abc", status: "/rpc/herdsman.daemon.v1.MessageService/Status" });
   });
 });
+
+test("a preview is rejected by an older daemon before any mutation", async () => {
+  let mutations = 0;
+  const older = fake(({ init }) => {
+    if (new Headers(init.headers).get("Content-Type") === "application/json") {
+      mutations++;
+      return json({});
+    }
+    return json({ code: "unimplemented", message: "unsupported content type" }, 415);
+  });
+  const client = createClient(MessageService, { baseUrl: "http://old", fetch: older.fetch });
+  expect((await failure(client.send({ dryRun: true }))).code).toBe("unimplemented");
+  expect(mutations).toBe(0);
+  expect(new Headers(older.calls[0]?.init.headers).get("Content-Type")).toBe("application/vnd.herdsman.preview+json");
+});
