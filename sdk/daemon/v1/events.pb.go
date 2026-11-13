@@ -610,6 +610,138 @@ func (x *Ping) GetNonce() string {
 	return ""
 }
 
+// RuntimeEvent is the JSON payload of an Event on the "runtime" topic, whose
+// type is the event's kind (herdr-core backend spec, sections 10 to 12). Kinds:
+// "execution_lost", "execution_replaced", "identity_changed",
+// "visibility_changed", "inventory_fault", "needs_attention" (reason
+// "notice_waiting", "interrupted", "compaction_due", "goal_paused",
+// "start_line", "dialog", or one of the card watch's "side_agent_cards",
+// "relay_failed", "read_failed" and "identity_lost"), "not_waiting", "notice_held" (reason: the gate), "claim_stuck",
+// "notice_outcome" (outcome other than "completed"), "notice_returned",
+// "report_outcome" (outcome "reported", "report_timeout",
+// "report_unavailable" or "not_reached"), "submit_unresolved",
+// "resume_partial" and "pause_pending".
+type RuntimeEvent struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Kind        string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Repo        string                 `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
+	Route       string                 `protobuf:"bytes,3,opt,name=route,proto3" json:"route,omitempty"`
+	ExecutionId string                 `protobuf:"bytes,4,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	// A short machine word, such as the gate of notice_held.
+	Reason string `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`
+	// Words for a person; never task content.
+	Detail   string `protobuf:"bytes,6,opt,name=detail,proto3" json:"detail,omitempty"`
+	NoticeId string `protobuf:"bytes,7,opt,name=notice_id,json=noticeId,proto3" json:"notice_id,omitempty"`
+	// A notice's or a stop report's outcome.
+	Outcome string `protobuf:"bytes,8,opt,name=outcome,proto3" json:"outcome,omitempty"`
+	// Milliseconds since the Unix epoch.
+	Time int64 `protobuf:"varint,9,opt,name=time,proto3" json:"time,omitempty"`
+	// A line a person may type in the agent's pane, for needs_attention.
+	Line          string `protobuf:"bytes,10,opt,name=line,proto3" json:"line,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RuntimeEvent) Reset() {
+	*x = RuntimeEvent{}
+	mi := &file_herdsman_daemon_v1_events_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RuntimeEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RuntimeEvent) ProtoMessage() {}
+
+func (x *RuntimeEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_daemon_v1_events_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RuntimeEvent.ProtoReflect.Descriptor instead.
+func (*RuntimeEvent) Descriptor() ([]byte, []int) {
+	return file_herdsman_daemon_v1_events_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *RuntimeEvent) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *RuntimeEvent) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *RuntimeEvent) GetRoute() string {
+	if x != nil {
+		return x.Route
+	}
+	return ""
+}
+
+func (x *RuntimeEvent) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *RuntimeEvent) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *RuntimeEvent) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+func (x *RuntimeEvent) GetNoticeId() string {
+	if x != nil {
+		return x.NoticeId
+	}
+	return ""
+}
+
+func (x *RuntimeEvent) GetOutcome() string {
+	if x != nil {
+		return x.Outcome
+	}
+	return ""
+}
+
+func (x *RuntimeEvent) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+func (x *RuntimeEvent) GetLine() string {
+	if x != nil {
+		return x.Line
+	}
+	return ""
+}
+
 var File_herdsman_daemon_v1_events_proto protoreflect.FileDescriptor
 
 const file_herdsman_daemon_v1_events_proto_rawDesc = "" +
@@ -647,7 +779,19 @@ const file_herdsman_daemon_v1_events_proto_rawDesc = "" +
 	"\x06cursor\x18\x02 \x01(\tR\x06cursor\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\"\x1c\n" +
 	"\x04Ping\x12\x14\n" +
-	"\x05nonce\x18\x01 \x01(\tR\x05nonce2q\n" +
+	"\x05nonce\x18\x01 \x01(\tR\x05nonce\"\xfe\x01\n" +
+	"\fRuntimeEvent\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x14\n" +
+	"\x05route\x18\x03 \x01(\tR\x05route\x12!\n" +
+	"\fexecution_id\x18\x04 \x01(\tR\vexecutionId\x12\x16\n" +
+	"\x06reason\x18\x05 \x01(\tR\x06reason\x12\x16\n" +
+	"\x06detail\x18\x06 \x01(\tR\x06detail\x12\x1b\n" +
+	"\tnotice_id\x18\a \x01(\tR\bnoticeId\x12\x18\n" +
+	"\aoutcome\x18\b \x01(\tR\aoutcome\x12\x12\n" +
+	"\x04time\x18\t \x01(\x03R\x04time\x12\x12\n" +
+	"\x04line\x18\n" +
+	" \x01(\tR\x04line2q\n" +
 	"\fEventService\x12a\n" +
 	"\x04Wait\x12+.herdsman.daemon.v1.EventServiceWaitRequest\x1a,.herdsman.daemon.v1.EventServiceWaitResponseB9Z7github.com/arafathusayn/herdsman/sdk/daemon/v1;daemonv1b\x06proto3"
 
@@ -663,7 +807,7 @@ func file_herdsman_daemon_v1_events_proto_rawDescGZIP() []byte {
 	return file_herdsman_daemon_v1_events_proto_rawDescData
 }
 
-var file_herdsman_daemon_v1_events_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_herdsman_daemon_v1_events_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_herdsman_daemon_v1_events_proto_goTypes = []any{
 	(*TopicCursor)(nil),              // 0: herdsman.daemon.v1.TopicCursor
 	(*EventServiceWaitRequest)(nil),  // 1: herdsman.daemon.v1.EventServiceWaitRequest
@@ -674,6 +818,7 @@ var file_herdsman_daemon_v1_events_proto_goTypes = []any{
 	(*Event)(nil),                    // 6: herdsman.daemon.v1.Event
 	(*Lagged)(nil),                   // 7: herdsman.daemon.v1.Lagged
 	(*Ping)(nil),                     // 8: herdsman.daemon.v1.Ping
+	(*RuntimeEvent)(nil),             // 9: herdsman.daemon.v1.RuntimeEvent
 }
 var file_herdsman_daemon_v1_events_proto_depIdxs = []int32{
 	0,  // 0: herdsman.daemon.v1.EventServiceWaitRequest.topics:type_name -> herdsman.daemon.v1.TopicCursor
@@ -712,7 +857,7 @@ func file_herdsman_daemon_v1_events_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_herdsman_daemon_v1_events_proto_rawDesc), len(file_herdsman_daemon_v1_events_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

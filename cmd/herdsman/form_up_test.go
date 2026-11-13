@@ -7,20 +7,24 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/arafathusayn/herdsman/internal/tui/forms"
 	"github.com/arafathusayn/herdsman/sdk/config"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 // stubForms makes every stream a terminal and records what the form would run.
 func stubForms(t *testing.T, terminal bool, answer []string, ok bool, openErr error) (ran *[]string, plain *bool, opens *int) {
 	t.Helper()
 	ran, plain, opens = new([]string), new(bool), new(int)
-	oldTerm, oldOpen, oldExec := formTerminals, openForm, execVerb
-	t.Cleanup(func() { formTerminals, openForm, execVerb = oldTerm, oldOpen, oldExec })
+	oldTerm, oldOpen, oldExec, oldDial := formTerminals, openForm, execVerb, dialRuntime
+	t.Cleanup(func() { formTerminals, openForm, execVerb, dialRuntime = oldTerm, oldOpen, oldExec, oldDial })
+	// Never the user's own daemon: the up form's backend field asks none.
+	dialRuntime = func() (daemonv1.RuntimeService, func(), error) { return nil, nil, errors.New("no daemon in tests") }
 	formTerminals = func(io.Reader, io.Writer) (*os.File, *os.File, bool) { return nil, nil, terminal }
 	openForm = func(_ context.Context, _ forms.Spec, _, _ *os.File, p bool) ([]string, bool, error) {
 		*opens++
@@ -294,7 +298,7 @@ func TestVerbEntryPointsOpenTheirForms(t *testing.T) {
 
 func TestFormFlagsParseBesideOtherArguments(t *testing.T) {
 	stubWorktree(t, map[string]string{"TeardownPlan": `{"plans":[]}`})
-	useTasks(t, &fakeTasks{}, &fakeTasks{}, nil)
+	useTasks(t, &fakeWorktreeTasks{}, &fakeWorktreeTasks{}, nil)
 	for name, c := range map[string]struct {
 		run  func([]string, io.Reader, io.Writer, io.Writer) int
 		args []string
@@ -366,6 +370,48 @@ func TestUpFormSurvivesAnUnreadableConfig(t *testing.T) {
 	args := []string{}
 	if _, opened := openUpForm(&args, nil, io.Discard, io.Discard); !opened {
 		t.Error("the form did not open")
+	}
+}
+
+// The up form's backend field takes what the doctor resolves, offers the
+// other backend first when the doctor says the resolved one cannot run, and
+// says why in its label.
+func TestUpFormBackendComesFromTheDoctor(t *testing.T) {
+	f := &fakeRuntime{backend: "herdr-tui", source: "existing-store"}
+	withFakeRuntime(t, f)
+	if b, note := formBackend("/srv/repo", "/srv/c.toml"); b != "herdr-tui" || note != "from installation" {
+		t.Fatalf("%q %q", b, note)
+	}
+	if f.doctor.GetRepo() != "/srv/repo" || f.doctor.GetConfigPath() != "/srv/c.toml" {
+		t.Fatalf("doctor asked %+v", f.doctor)
+	}
+	// The fake says core is not available in this build.
+	f.backend = "herdr-core"
+	if b, note := formBackend("/srv/repo", ""); b != "herdr-tui" || !strings.Contains(note, "herdr-core from installation cannot run here") {
+		t.Fatalf("%q %q", b, note)
+	}
+	b, note := backendFromDoctor(&daemonv1.RuntimeServiceDoctorResponse{Checks: []*daemonv1.RuntimeCheck{{Name: "selection", State: "fail",
+		Detail: "backend_experimental: herdr-core (from config) ships as an experiment in this release; set experimental = true"}}})
+	if b != "herdr-tui" || !strings.Contains(note, "experimental = true") {
+		t.Fatalf("%q %q", b, note)
+	}
+	b, note = backendFromDoctor(&daemonv1.RuntimeServiceDoctorResponse{
+		Selection: &daemonv1.RuntimeSelection{Backend: "herdr-core", Source: "config", ConfigPath: "/c.toml", Experiment: "x"},
+		Backends:  []*daemonv1.BackendReport{{Backend: "herdr-core", Available: true}}})
+	if b != "herdr-core" || note != "from config /c.toml, an experiment" {
+		t.Fatalf("%q %q", b, note)
+	}
+	// No daemon: the config file's own line, as it stands.
+	dialRuntime = func() (daemonv1.RuntimeService, func(), error) { return nil, nil, errors.New("down") }
+	file := filepath.Join(t.TempDir(), "herdsman.config.toml")
+	if err := os.WriteFile(file, []byte("[runtime]\nbackend = \"herdr-core\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if b, note := formBackend("", file); b != "herdr-core" || !strings.Contains(note, "did not answer") {
+		t.Fatalf("%q %q", b, note)
+	}
+	if b, note := formBackend("", ""); b != "" || !strings.Contains(note, "down") {
+		t.Fatalf("%q %q", b, note)
 	}
 }
 

@@ -11,7 +11,11 @@ Prints a health snapshot of every agent in HERDSMAN_STATUS_SPECS
 background job running that many minutes or more.
 
 With --route, prints one route's lifecycle state and its pair, flagging
-a pair left pending. <route> is a route name, a route folder, or @.
+a pair left pending, then each execution as the daemon's RuntimeService
+reports it: identity, process, readiness, program status, visibility
+(with the app open or closed), why it waits on a person, unresolved
+items, notices by state, and the controls its backend allows, each on
+its own line. <route> is a route name, a route folder, or @.
 
 exit codes:
   0  the snapshot was printed

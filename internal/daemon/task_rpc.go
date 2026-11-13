@@ -2,32 +2,41 @@ package daemon
 
 import (
 	"context"
+	"errors"
 
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
-// taskRPC serves the worktree calls of TaskService. The other calls have no
-// server yet, so the embedded interface stays nil and only these are mounted.
-type taskRPC struct {
+// worktreeRPC serves worktree operations through the daemon-owned runtime service.
+// Record operations use taskRPC and are mounted separately.
+type worktreeRPC struct {
 	daemonv1.TaskService
 	service *WorktreeService
+	d       *Daemon
 }
 
-func newTaskRPC(journal *taskJournal) *taskRPC {
-	return &taskRPC{service: &WorktreeService{tasks: journal}}
+func newTaskRPC(d *Daemon) *worktreeRPC {
+	return &worktreeRPC{service: d.worktrees, d: d}
 }
 
 // LocalTaskService serves the contract in the calling process.
 func LocalTaskService() daemonv1.TaskService {
-	return &taskRPC{service: &WorktreeService{}}
+	return &worktreeRPC{service: &WorktreeService{}}
 }
 
 func refusal(err error) error { return rpc.Errorf(rpc.FailedPrecondition, "%s", err.Error()) }
 
 // New implements TaskService.
-func (t *taskRPC) New(ctx context.Context, in *daemonv1.TaskServiceNewRequest) (*daemonv1.TaskServiceNewResponse, error) {
-	made, err := t.service.forCaller(in.GetEnviron()).New(ctx, WorktreeNewRequest{
+func (t *worktreeRPC) New(ctx context.Context, in *daemonv1.TaskServiceNewRequest) (*daemonv1.TaskServiceNewResponse, error) {
+	if t.d == nil && in.GetAgent() != "" {
+		return nil, refusal(errors.New("agent launch requires a running daemon to select and verify its backend"))
+	}
+	ctx, service, err := t.admit(ctx)
+	if err != nil {
+		return nil, err
+	}
+	made, err := service.forCaller(in.GetEnviron()).New(ctx, WorktreeNewRequest{
 		Dir: in.GetDir(), Task: in.GetTask(), Base: in.GetBase(), From: in.GetFrom(), Type: in.GetType(),
 		Agent: in.GetAgent(), Prompt: in.GetPrompt(), NoSetup: in.GetNoSetup(), Clobber: in.GetClobber(), Integrator: in.GetIntegrator(),
 	})
@@ -46,8 +55,12 @@ func (t *taskRPC) New(ctx context.Context, in *daemonv1.TaskServiceNewRequest) (
 }
 
 // Go implements TaskService.
-func (t *taskRPC) Go(ctx context.Context, in *daemonv1.TaskServiceGoRequest) (*daemonv1.TaskServiceGoResponse, error) {
-	found, err := t.service.forCaller(in.GetEnviron()).Go(ctx, WorktreeGoRequest{Dir: in.GetDir(), Selector: in.GetSelector(), Focus: in.GetFocus()})
+func (t *worktreeRPC) Go(ctx context.Context, in *daemonv1.TaskServiceGoRequest) (*daemonv1.TaskServiceGoResponse, error) {
+	ctx, service, err := t.admit(ctx)
+	if err != nil {
+		return nil, err
+	}
+	found, err := service.forCaller(in.GetEnviron()).Go(ctx, WorktreeGoRequest{Dir: in.GetDir(), Selector: in.GetSelector(), Focus: in.GetFocus()})
 	if err != nil {
 		return nil, refusal(err)
 	}
@@ -55,4 +68,11 @@ func (t *taskRPC) Go(ctx context.Context, in *daemonv1.TaskServiceGoRequest) (*d
 		SchemaVersion: worktreeSchemaVersion, Task: found.Task, Branch: found.Branch, Path: found.Path, Created: found.Created,
 		Focused: found.Focused, PushRemote: found.PushRemote, Warnings: found.Warnings,
 	}, nil
+}
+
+func (t *worktreeRPC) admit(ctx context.Context) (context.Context, *WorktreeService, error) {
+	if t.d == nil {
+		return ctx, t.service, nil
+	}
+	return (ledgerRPC{d: t.d, inspect: t.d.cfg.Inspect}).admit()
 }

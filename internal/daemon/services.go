@@ -11,15 +11,19 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 	m := &messageService{d: d}
 	recovery := &opsService{d: d}
 	routes := &routeService{d: d}
+	runtimes := &runtimeService{d: d}
 	projectContext := &projectContextService{}
 	suggestions := &suggestRPC{s: &SuggestService{}, inspect: d.cfg.Inspect}
+	records := &recordsRPC{d: d}
+	projects, tasks := projectRPC{records}, taskRPC{records}
 	eventRPC := newEventService(d.hub, d.admitEvents, releaseContext)
 	name := daemonv1.MessageServiceName
-	tasks := newTaskRPC(d.taskJournal())
+	worktrees := newTaskRPC(d)
 	ledgers := ledgerRPC{d: d, inspect: d.cfg.Inspect}
 	return append(eventRPC.procedures(), []rpc.Procedure{
-		rpc.Unary(daemonv1.TaskServiceName, "New", tasks.New),
-		rpc.Unary(daemonv1.TaskServiceName, "Go", tasks.Go),
+		rpc.Unary(daemonv1.TaskServiceName, "New", worktrees.New),
+		rpc.Unary(daemonv1.TaskServiceName, "Go", worktrees.Go),
+		rpc.Unary(daemonv1.LedgerServiceName, "NewWorktree", ledgers.NewWorktree),
 		rpc.Unary(daemonv1.LedgerServiceName, "Resources", ledgers.Resources),
 		rpc.Unary(daemonv1.LedgerServiceName, "Plan", ledgers.Plan),
 		rpc.Unary(daemonv1.LedgerServiceName, "AddResource", ledgers.AddResource),
@@ -54,6 +58,7 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(name, "GetOperation", m.GetOperation),
 		rpc.Unary(name, "ResolveOperation", m.ResolveOperation),
 		rpc.Unary(name, "Wait", m.Wait),
+		rpc.Unary(name, "ResumeGoal", m.ResumeGoal),
 		rpc.Unary(daemonv1.OpsServiceName, "Undo", recovery.Undo),
 		rpc.Unary(daemonv1.OpsServiceName, "Export", recovery.Export),
 		rpc.Unary(daemonv1.OpsServiceName, "Import", recovery.Import),
@@ -61,6 +66,19 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(daemonv1.RouteServiceName, "Up", routes.Up),
 		rpc.Unary(daemonv1.RouteServiceName, "Get", routes.Get),
 		rpc.Unary(daemonv1.RouteServiceName, "List", routes.List),
+		rpc.Unary(daemonv1.ProjectServiceName, "Create", projects.Create),
+		rpc.Unary(daemonv1.ProjectServiceName, "Get", projects.Get),
+		rpc.Unary(daemonv1.ProjectServiceName, "List", projects.List),
+		rpc.Unary(daemonv1.ProjectServiceName, "Update", projects.Update),
+		rpc.Unary(daemonv1.ProjectServiceName, "Delete", projects.Delete),
+		rpc.Unary(daemonv1.ProjectServiceName, "Bind", projects.Bind),
+		rpc.Unary(daemonv1.ProjectServiceName, "Unbind", projects.Unbind),
+		rpc.Unary(daemonv1.TaskServiceName, "Create", tasks.Create),
+		rpc.Unary(daemonv1.TaskServiceName, "Get", tasks.Get),
+		rpc.Unary(daemonv1.TaskServiceName, "List", tasks.List),
+		rpc.Unary(daemonv1.TaskServiceName, "Update", tasks.Update),
+		rpc.Unary(daemonv1.TaskServiceName, "Delete", tasks.Delete),
+		rpc.Unary(daemonv1.TaskServiceName, "Link", tasks.Link),
 		rpc.Unary(suggestv1.SuggestServiceName, "Search", suggestions.Search),
 		rpc.Unary(suggestv1.SuggestServiceName, "Get", suggestions.Get),
 		rpc.Unary(suggestv1.SuggestServiceName, "Add", suggestions.Add),
@@ -78,5 +96,13 @@ func (d *Daemon) rpcProcedures() []rpc.Procedure {
 		rpc.Unary(daemonv1.RouteServiceName, "Resume", routes.Resume),
 		rpc.Unary(daemonv1.RouteServiceName, "Stop", routes.Stop),
 		rpc.Unary(daemonv1.RouteServiceName, "Delete", routes.Delete),
+		rpc.Unary(daemonv1.RuntimeServiceName, "ListExecutions", runtimes.ListExecutions),
+		rpc.Unary(daemonv1.RuntimeServiceName, "GetExecution", runtimes.GetExecution),
+		rpc.Unary(daemonv1.RuntimeServiceName, "Doctor", runtimes.Doctor),
+		rpc.Unary(daemonv1.RuntimeServiceName, "GetDefault", runtimes.GetDefault),
+		rpc.Unary(daemonv1.RuntimeServiceName, "SetDefault", runtimes.SetDefault),
+		rpc.Unary(daemonv1.RuntimeServiceName, "Submit", runtimes.Submit),
+		rpc.Unary(daemonv1.RuntimeServiceName, "Show", runtimes.Show),
+		rpc.Unary(daemonv1.RuntimeServiceName, "Read", runtimes.Read),
 	}...)
 }

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arafathusayn/herdsman/internal/daemon/store"
 	"github.com/arafathusayn/herdsman/internal/ops"
 	"github.com/arafathusayn/herdsman/internal/wtree"
 	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
@@ -196,7 +197,7 @@ func TestTreeProbeTellsAbsentMatchingAndForeign(t *testing.T) {
 
 func TestTheCallCarriesTheIntegratorRequest(t *testing.T) {
 	repo, environ := taskRepo(t)
-	made, err := (&taskRPC{service: &WorktreeService{}}).New(context.Background(), &daemonv1.TaskServiceNewRequest{Dir: repo, Task: "one", Integrator: true, Environ: environ})
+	made, err := (&worktreeRPC{service: &WorktreeService{}}).New(context.Background(), &daemonv1.TaskServiceNewRequest{Dir: repo, Task: "one", Integrator: true, Environ: environ})
 	if err != nil || !slices.ContainsFunc(made.GetWarnings(), func(line string) bool { return strings.Contains(line, "integrator") }) {
 		t.Fatalf("%v %v", made, err)
 	}
@@ -235,4 +236,72 @@ func TestTheProbeKnowsATasksOwnClone(t *testing.T) {
 	check(ops.Different)
 	git("symbolic-ref", "HEAD", "refs/heads/feat/one")
 	check(ops.Matches)
+}
+
+func TestLocalTaskServiceRefusesAgentLaunchBeforeCreatingWorktree(t *testing.T) {
+	repo, environ := taskRepo(t)
+	_, err := LocalTaskService().New(context.Background(), &daemonv1.TaskServiceNewRequest{Dir: repo, Task: "one", Agent: "claude", Environ: environ})
+	if err == nil || !strings.Contains(err.Error(), "running daemon") {
+		t.Fatalf("%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(repo), "repo.worktrees", "one")); !os.IsNotExist(err) {
+		t.Fatalf("local fallback created a worktree: %v", err)
+	}
+}
+
+// Recovery can run an operation before Submit returns to its caller.
+func TestTaskCreationKeepsResultWhenRecoveryWinsSubmission(t *testing.T) {
+	repo, environ := taskRepo(t)
+	r, err := (&WorktreeService{}).forCaller(environ).open(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.close()
+	db, err := store.Open(filepath.Join(shortDir(t), "account.db"), store.Writer, store.KindAccount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var engine *ops.Engine
+	journal := &taskJournal{engine: func() *ops.Engine { return engine }}
+	engine = ops.NewEngine(db, ops.Options{Effects: map[string]ops.Effect{
+		effectTree: taskResultEffect{journal}, effectRecord: taskResultEffect{},
+	}, Fault: func(point string) {
+		if point != "submit" {
+			return
+		}
+		all, err := engine.List()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := engine.Drive(context.Background(), all[len(all)-1].ID); err != nil {
+			t.Fatal(err)
+		}
+	}})
+	response := WorktreeNewResponse{Base: "main", Warnings: []string{"before creation"}}
+	if err := journal.run(context.Background(), r, treeSpec{Main: repo, Task: "one", Path: filepath.Join(repo, "tree"), Branch: "feat/one"}, &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.Herdr || response.Base != "main" || !slices.Equal(response.Warnings, []string{"before creation", "created"}) {
+		t.Fatalf("lost launch metadata: %+v", response)
+	}
+}
+
+type taskResultEffect struct{ journal *taskJournal }
+
+func (e taskResultEffect) Apply(_ context.Context, st ops.Step) error {
+	if e.journal == nil {
+		return nil
+	}
+	result, ok := e.journal.pending.Load(st.Key)
+	if !ok {
+		return errors.New("recovery ran before the result was published")
+	}
+	response := result.(*WorktreeNewResponse)
+	response.Herdr = true
+	response.Warnings = []string{"created"}
+	return nil
+}
+func (taskResultEffect) Probe(context.Context, ops.Step) (ops.Verdict, string, error) {
+	return ops.Matches, "", nil
 }

@@ -52,8 +52,9 @@ type Client struct {
 	Ops     daemonv1.OpsService
 	Ledger  daemonv1.LedgerService
 	Route   daemonv1.RouteService
-	Task    daemonv1.TaskService
 	Project daemonv1.ProjectService
+	Task    daemonv1.TaskService
+	Runtime daemonv1.RuntimeService
 
 	http *http.Client
 }
@@ -111,6 +112,7 @@ func Dial(options Options) (*Client, error) {
 		Route:   daemonv1.NewRouteServiceClient(hc, base),
 		Project: daemonv1.NewProjectServiceClient(hc, base),
 		Task:    daemonv1.NewTaskServiceClient(hc, base),
+		Runtime: daemonv1.NewRuntimeServiceClient(hc, base),
 		http:    &http.Client{Transport: transport},
 	}, nil
 }

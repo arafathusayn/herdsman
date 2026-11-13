@@ -10,7 +10,7 @@ import (
 	"github.com/arafathusayn/herdsman/sdk/rpc"
 )
 
-type fakeTasks struct {
+type fakeWorktreeTasks struct {
 	daemonv1.TaskService
 	newErr  error
 	goErr   error
@@ -18,7 +18,7 @@ type fakeTasks struct {
 	goSeen  *daemonv1.TaskServiceGoRequest
 }
 
-func (f *fakeTasks) New(_ context.Context, in *daemonv1.TaskServiceNewRequest) (*daemonv1.TaskServiceNewResponse, error) {
+func (f *fakeWorktreeTasks) New(_ context.Context, in *daemonv1.TaskServiceNewRequest) (*daemonv1.TaskServiceNewResponse, error) {
 	f.newSeen = in
 	if f.newErr != nil {
 		return nil, f.newErr
@@ -26,7 +26,7 @@ func (f *fakeTasks) New(_ context.Context, in *daemonv1.TaskServiceNewRequest) (
 	return &daemonv1.TaskServiceNewResponse{SchemaVersion: "1.0.0", Task: in.GetTask(), Branch: "feat/x", Path: "/w/x", Port: 4000}, nil
 }
 
-func (f *fakeTasks) Go(_ context.Context, in *daemonv1.TaskServiceGoRequest) (*daemonv1.TaskServiceGoResponse, error) {
+func (f *fakeWorktreeTasks) Go(_ context.Context, in *daemonv1.TaskServiceGoRequest) (*daemonv1.TaskServiceGoResponse, error) {
 	f.goSeen = in
 	if f.goErr != nil {
 		return nil, f.goErr
@@ -44,7 +44,7 @@ func useTasks(t *testing.T, daemon, local daemonv1.TaskService, dialErr error) {
 
 func TestNewAndGoCallTheDaemonThroughTheSDK(t *testing.T) {
 	worktreeRepo(t)
-	daemon, local := &fakeTasks{}, &fakeTasks{}
+	daemon, local := &fakeWorktreeTasks{}, &fakeWorktreeTasks{}
 	useTasks(t, daemon, local, nil)
 	if out, stderr, code := call(t, "new", "x", "--no-setup", "--json"); code != 0 || !strings.Contains(out, `"schema":{"version":"1.0.0"}`) || !strings.Contains(out, `"branch":"feat/x"`) {
 		t.Fatalf("%d %q %q", code, out, stderr)
@@ -62,8 +62,8 @@ func TestNewAndGoCallTheDaemonThroughTheSDK(t *testing.T) {
 
 func TestNewRunsHereWhenTheDaemonLacksTheCall(t *testing.T) {
 	worktreeRepo(t)
-	local := &fakeTasks{}
-	useTasks(t, &fakeTasks{newErr: rpc.Errorf(rpc.Unimplemented, "no such call")}, local, nil)
+	local := &fakeWorktreeTasks{}
+	useTasks(t, &fakeWorktreeTasks{newErr: rpc.Errorf(rpc.Unimplemented, "no such call")}, local, nil)
 	if _, stderr, code := call(t, "new", "x", "--no-setup"); code != 0 || local.newSeen == nil {
 		t.Fatalf("%d %q", code, stderr)
 	}
@@ -71,8 +71,8 @@ func TestNewRunsHereWhenTheDaemonLacksTheCall(t *testing.T) {
 
 func TestADaemonRefusalIsNotRetriedHere(t *testing.T) {
 	worktreeRepo(t)
-	local := &fakeTasks{}
-	useTasks(t, &fakeTasks{newErr: rpc.Errorf(rpc.FailedPrecondition, "refused")}, local, nil)
+	local := &fakeWorktreeTasks{}
+	useTasks(t, &fakeWorktreeTasks{newErr: rpc.Errorf(rpc.FailedPrecondition, "refused")}, local, nil)
 	if _, stderr, code := call(t, "new", "x", "--no-setup"); code != 1 || local.newSeen != nil || !strings.Contains(stderr, "refused") {
 		t.Fatalf("%d %q", code, stderr)
 	}
@@ -80,7 +80,7 @@ func TestADaemonRefusalIsNotRetriedHere(t *testing.T) {
 
 func TestNewRunsHereWhenTheClientCannotBeMade(t *testing.T) {
 	worktreeRepo(t)
-	local := &fakeTasks{}
+	local := &fakeWorktreeTasks{}
 	useTasks(t, nil, local, errors.New("no home"))
 	if _, stderr, code := call(t, "new", "x", "--no-setup"); code != 0 || local.newSeen == nil {
 		t.Fatalf("%d %q", code, stderr)

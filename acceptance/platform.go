@@ -166,6 +166,20 @@ var (
 
 func probes() map[string]Probe { return probesFor(runtime.GOOS) }
 
+// goarch is the machine's architecture; tests replace it.
+var goarch = runtime.GOARCH
+
+// appleSilicon refuses a macOS machine that is not Apple silicon: herdr-core
+// and its app are claimed on darwin/arm64 only, so a probe on an Intel Mac
+// fails with the reason instead of proving something the release does not
+// claim.
+func appleSilicon(goos string) error {
+	if goos == "darwin" && goarch != "arm64" {
+		return fmt.Errorf("herdr-core and herdr-app are claimed on Apple silicon only, and this machine is darwin/%s", goarch)
+	}
+	return nil
+}
+
 func probesFor(goos string) map[string]Probe {
 	self := strconv.Itoa(os.Getpid())
 	return map[string]Probe{
@@ -202,6 +216,20 @@ func probesFor(goos string) map[string]Probe {
 				return runTool("security", "list-keychains")
 			}
 			_, err := exec.LookPath("secret-tool")
+			return err
+		},
+		"herdr-core": func() error {
+			if err := appleSilicon(goos); err != nil {
+				return err
+			}
+			return runTool("hc", "--version")
+		},
+		// Only looked up, never run: running the app could open a window.
+		"herdr-app": func() error {
+			if err := appleSilicon(goos); err != nil {
+				return err
+			}
+			_, err := exec.LookPath("herdr-app")
 			return err
 		},
 		"pty": func() error {

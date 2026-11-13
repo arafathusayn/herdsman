@@ -1,0 +1,98 @@
+.TH HERDSMAN-RUNTIME 1 "" "herdsman" "herdsman manual"
+.SH NAME
+herdsman-runtime \- Where agents run: runtime doctor, runtime ls, runtime default, runtime submit, runtime show.
+.SH DESCRIPTION
+.nf
+usage: herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]
+       herdsman runtime ls [--route <route>] [--json]
+       herdsman runtime default [<backend>] [--json]
+       herdsman runtime submit <execution> <line> [--yes] [--again] [--json]
+       herdsman runtime show <execution> [--json]
+
+Where agents run. A backend is herdr-core or herdr-tui. A new route takes
+--backend, then the config file's [runtime] backend, then the installation
+default; a route that exists keeps the backend it started on. New installations
+and new config files select herdr-core. Existing installations keep their
+recorded choice. The optional herdr-tui backend is an explicit configuration
+choice; the native app remains required for core visibility.
+
+exit codes:
+  0  done; for doctor, the selected backend can run
+  1  the daemon refused or is not running; for doctor, a check failed
+  2  bad usage
+
+runtime default:
+usage: herdsman runtime default [<backend>] [--json]
+
+With no value, prints the installation default and where it came from. With a
+value, herdr-core or herdr-tui, sets it. Routes that exist keep their backend,
+and a config file's [runtime] backend still wins.
+
+exit codes:
+  0  printed or set
+  1  the daemon refused or is not running
+  2  bad usage
+
+runtime doctor:
+usage: herdsman runtime doctor [--route <route>] [--backend <backend>] [-c <config>] [--json]
+
+Says which backend a run here would use and why, and whether each backend can
+run on this machine. For herdr-core it also says how each harness is woken
+and which of its steps need a person, the steps up names before a route
+starts, and each value of [runtime.core], [runtime.app] and
+[runtime.tui_view] in use with where it came from: the config file, the
+route's persisted endpoint, or the default. With --route, the route's own
+backend and endpoint. It changes nothing.
+
+exit codes:
+  0  the selected backend can run
+  1  a check failed, or the daemon refused or is not running
+  2  bad usage
+
+runtime ls:
+usage: herdsman runtime ls [--route <route>] [--json]
+
+Lists the executions the daemon knows, newest first: one per harness launch.
+An agent of a route started before execution records existed is listed as
+legacy. --route lists one route of this repository. --json also gives each
+record's experiment label and the harness's own conversation id with where it
+was read, when one was found.
+
+exit codes:
+  0  listed
+  1  the daemon refused or is not running
+  2  bad usage
+
+runtime show:
+usage: herdsman runtime show <execution> [--json]
+
+Focuses an execution's existing terminal in the herdr app, through the daemon.
+It never starts an execution, never creates a view and types nothing. The
+execution is an id from herdsman runtime ls.
+
+exit codes:
+  0  shown
+  1  refused (no recorded place, identity not proven) or the daemon is not running
+  2  bad usage
+
+runtime submit:
+usage: herdsman runtime submit <execution> <line> [--yes] [--again] [--json]
+
+Types one line into one herdr-core execution's terminal and presses Enter, as
+your own explicit action. herdr-core checks the program's state once, before
+the paste; the Enter follows that check by about 200 ms with no second check,
+so a dialog that opens in between is confirmed by it. Once core holds the
+line nothing can recall it. It is typed only while the program reports idle,
+after it reported a status since it started, with no other submit of yours
+outstanding there. No automation ever runs this, and an agent is refused.
+
+Without --yes it shows that warning and asks you to type yes. --again sends
+although an earlier submit is unresolved, knowing that both may be typed.
+
+exit codes:
+  0  typed, or rejected by core before anything was written
+  1  refused, unresolved, or the daemon is not running
+  2  bad usage
+.fi
+.SH SEE ALSO
+.BR herdsman (1)

@@ -8,8 +8,9 @@ import (
 )
 
 // strictSections are the sections where a misspelling could quietly switch
-// off a safety setting, so an unknown key stops the command.
-var strictSections = map[string]bool{"policy": true, "launch": true}
+// off a safety setting, so an unknown key stops the command. In [runtime] a
+// misspelled backend would otherwise fall through to the installation default.
+var strictSections = map[string]bool{"policy": true, "launch": true, "runtime": true}
 
 // Warning is one key the configuration does not define.
 type Warning struct {

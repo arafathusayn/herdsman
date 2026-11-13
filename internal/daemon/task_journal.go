@@ -42,7 +42,7 @@ func (s *WorktreeService) applyTree(ctx context.Context, r *repository, spec tre
 		return r.cloneTask(ctx, spec.Branch, spec.Path, spec.Start)
 	}
 	if !spec.GitOnly {
-		return s.create(ctx, r, taskShape{}, spec.Task, spec.Branch, spec.Path, spec.Start, resp)
+		return s.create(ctx, r, taskShape{}, spec.Task, spec.Branch, spec.Path, spec.Start, false, resp)
 	}
 	args := []string{"worktree", "add", "-q", spec.Path, spec.Branch}
 	if spec.Start != "" {
@@ -172,7 +172,7 @@ func (e taskEffect) Probe(ctx context.Context, st ops.Step) (ops.Verdict, string
 func (j *taskJournal) effects() map[string]ops.Effect {
 	tree := func(ctx context.Context, service *WorktreeService, r *repository, spec treeSpec, st ops.Step, j *taskJournal) error {
 		resp := &WorktreeNewResponse{}
-		if waiting, ok := j.pending.LoadAndDelete(st.Key); ok {
+		if waiting, ok := j.pending.Load(st.Key); ok {
 			resp = waiting.(*WorktreeNewResponse)
 		}
 		return service.applyTree(ctx, r, spec, resp)
@@ -222,6 +222,14 @@ func (j *taskJournal) run(ctx context.Context, r *repository, spec treeSpec, res
 	}
 	engine := j.engine()
 	treeKey, recordKey := "wtree-tree:"+spec.Path, "wtree-record:"+spec.Path
+
+	// Publish an isolated result before Submit: recovery may drive the operation
+	// as soon as it is durable. Never expose a response it can still mutate.
+	result := &WorktreeNewResponse{}
+	if _, loaded := j.pending.LoadOrStore(treeKey, result); loaded {
+		return fmt.Errorf("creation of %s is already in progress", spec.Task)
+	}
+	defer j.pending.CompareAndDelete(treeKey, result)
 	op, err := engine.Submit(ctx, ops.Spec{
 		Kind: "task.new", Plan: "make the worktree of " + spec.Task,
 		Locks: []string{ops.TaskLock(r.common + ":" + spec.Task)},
@@ -233,14 +241,30 @@ func (j *taskJournal) run(ctx context.Context, r *repository, spec treeSpec, res
 	if err != nil {
 		return err
 	}
-	j.pending.Store(treeKey, resp)
-	defer j.pending.Delete(treeKey)
-	op, err = engine.Drive(ctx, op.ID)
+	op, err = driveTask(ctx, engine, op.ID)
 	if err != nil {
 		return err
 	}
 	if op.State != ops.OpDone {
 		return fmt.Errorf("the worktree of %s was not made (%s): %s", spec.Task, op.State, op.Reason)
 	}
+	resp.Herdr = result.Herdr
+	resp.Warnings = append(resp.Warnings, result.Warnings...)
 	return nil
+}
+
+// A recovery pass may already own the operation. Wait for that driver instead
+// of returning a spurious creation failure while it continues in the background.
+func driveTask(ctx context.Context, engine *ops.Engine, id string) (*ops.Operation, error) {
+	for {
+		op, err := engine.Drive(ctx, id)
+		if !errors.Is(err, ops.ErrBusy) {
+			return op, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }

@@ -919,6 +919,102 @@ func (x *Task) GetUpdated() int64 {
 	return 0
 }
 
+// RuntimeRef names one execution of a runtime backend: one harness launch. It
+// is added beside the pane fields of older messages, which keep their meaning
+// for the herdr-tui backend only and are never filled with invented values.
+type RuntimeRef struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// "herdr-core" or "herdr-tui".
+	Backend string `protobuf:"bytes,1,opt,name=backend,proto3" json:"backend,omitempty"`
+	// A random UUID of one harness launch; empty for a legacy TUI binding that
+	// predates execution records.
+	ExecutionId string `protobuf:"bytes,2,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	// Raised each time the logical agent is launched again.
+	Generation int64 `protobuf:"varint,3,opt,name=generation,proto3" json:"generation,omitempty"`
+	// The verified endpoint: the core identity on herdr-core, the server socket
+	// on herdr-tui.
+	EndpointId string `protobuf:"bytes,4,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	// The core terminal address; never a reusable friendly name. Empty on
+	// herdr-tui.
+	TerminalAddress string `protobuf:"bytes,5,opt,name=terminal_address,json=terminalAddress,proto3" json:"terminal_address,omitempty"`
+	// The Herdr TUI pane; empty on herdr-core.
+	Pane          string `protobuf:"bytes,6,opt,name=pane,proto3" json:"pane,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RuntimeRef) Reset() {
+	*x = RuntimeRef{}
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RuntimeRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RuntimeRef) ProtoMessage() {}
+
+func (x *RuntimeRef) ProtoReflect() protoreflect.Message {
+	mi := &file_herdsman_core_v1_core_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RuntimeRef.ProtoReflect.Descriptor instead.
+func (*RuntimeRef) Descriptor() ([]byte, []int) {
+	return file_herdsman_core_v1_core_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RuntimeRef) GetBackend() string {
+	if x != nil {
+		return x.Backend
+	}
+	return ""
+}
+
+func (x *RuntimeRef) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *RuntimeRef) GetGeneration() int64 {
+	if x != nil {
+		return x.Generation
+	}
+	return 0
+}
+
+func (x *RuntimeRef) GetEndpointId() string {
+	if x != nil {
+		return x.EndpointId
+	}
+	return ""
+}
+
+func (x *RuntimeRef) GetTerminalAddress() string {
+	if x != nil {
+		return x.TerminalAddress
+	}
+	return ""
+}
+
+func (x *RuntimeRef) GetPane() string {
+	if x != nil {
+		return x.Pane
+	}
+	return ""
+}
+
 var File_herdsman_core_v1_core_proto protoreflect.FileDescriptor
 
 const file_herdsman_core_v1_core_proto_rawDesc = "" +
@@ -988,7 +1084,18 @@ const file_herdsman_core_v1_core_proto_rawDesc = "" +
 	"\x05links\x18\n" +
 	" \x03(\v2\x1a.herdsman.core.v1.TaskLinkR\x05links\x12\x18\n" +
 	"\acreated\x18\v \x01(\x03R\acreated\x12\x18\n" +
-	"\aupdated\x18\f \x01(\x03R\aupdatedB5Z3github.com/arafathusayn/herdsman/sdk/core/v1;corev1b\x06proto3"
+	"\aupdated\x18\f \x01(\x03R\aupdated\"\xc9\x01\n" +
+	"\n" +
+	"RuntimeRef\x12\x18\n" +
+	"\abackend\x18\x01 \x01(\tR\abackend\x12!\n" +
+	"\fexecution_id\x18\x02 \x01(\tR\vexecutionId\x12\x1e\n" +
+	"\n" +
+	"generation\x18\x03 \x01(\x03R\n" +
+	"generation\x12\x1f\n" +
+	"\vendpoint_id\x18\x04 \x01(\tR\n" +
+	"endpointId\x12)\n" +
+	"\x10terminal_address\x18\x05 \x01(\tR\x0fterminalAddress\x12\x12\n" +
+	"\x04pane\x18\x06 \x01(\tR\x04paneB5Z3github.com/arafathusayn/herdsman/sdk/core/v1;corev1b\x06proto3"
 
 var (
 	file_herdsman_core_v1_core_proto_rawDescOnce sync.Once
@@ -1002,7 +1109,7 @@ func file_herdsman_core_v1_core_proto_rawDescGZIP() []byte {
 	return file_herdsman_core_v1_core_proto_rawDescData
 }
 
-var file_herdsman_core_v1_core_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_herdsman_core_v1_core_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_herdsman_core_v1_core_proto_goTypes = []any{
 	(*RouteId)(nil),       // 0: herdsman.core.v1.RouteId
 	(*MessageId)(nil),     // 1: herdsman.core.v1.MessageId
@@ -1017,10 +1124,11 @@ var file_herdsman_core_v1_core_proto_goTypes = []any{
 	(*Project)(nil),       // 10: herdsman.core.v1.Project
 	(*TaskLink)(nil),      // 11: herdsman.core.v1.TaskLink
 	(*Task)(nil),          // 12: herdsman.core.v1.Task
-	(*anypb.Any)(nil),     // 13: google.protobuf.Any
+	(*RuntimeRef)(nil),    // 13: herdsman.core.v1.RuntimeRef
+	(*anypb.Any)(nil),     // 14: google.protobuf.Any
 }
 var file_herdsman_core_v1_core_proto_depIdxs = []int32{
-	13, // 0: herdsman.core.v1.Error.details:type_name -> google.protobuf.Any
+	14, // 0: herdsman.core.v1.Error.details:type_name -> google.protobuf.Any
 	5,  // 1: herdsman.core.v1.Plan.steps:type_name -> herdsman.core.v1.PlanStep
 	1,  // 2: herdsman.core.v1.MessageHeader.id:type_name -> herdsman.core.v1.MessageId
 	1,  // 3: herdsman.core.v1.MessageHeader.reply_to:type_name -> herdsman.core.v1.MessageId
@@ -1048,7 +1156,7 @@ func file_herdsman_core_v1_core_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_herdsman_core_v1_core_proto_rawDesc), len(file_herdsman_core_v1_core_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

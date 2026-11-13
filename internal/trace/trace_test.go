@@ -989,3 +989,18 @@ func TestMixedOutcomesAreCounted(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 }
+
+// A herdr-core route's launch steps, notices and typed lines are spans the
+// route's own log keeps.
+func TestAppendKeepsTheCoreKinds(t *testing.T) {
+	route := t.TempDir()
+	start := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	for _, kind := range []string{KindLaunch, KindNotice, KindSubmit} {
+		if err := Append(route, Span{Kind: kind, Name: kind + " step", Start: start, DurationMS: 1}); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+	}
+	if err := Append(route, Span{Kind: "launches", Name: "x", Start: start}); err == nil {
+		t.Fatal("an unknown kind was kept")
+	}
+}

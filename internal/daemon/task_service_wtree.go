@@ -21,8 +21,14 @@ import (
 	"github.com/arafathusayn/herdsman/internal/gitrun"
 	"github.com/arafathusayn/herdsman/internal/herdr"
 	"github.com/arafathusayn/herdsman/internal/hooks"
+	"github.com/arafathusayn/herdsman/internal/launch"
 	"github.com/arafathusayn/herdsman/internal/ops"
+	"github.com/arafathusayn/herdsman/internal/profile"
+	"github.com/arafathusayn/herdsman/internal/route"
+	"github.com/arafathusayn/herdsman/internal/runtime/core"
 	"github.com/arafathusayn/herdsman/internal/wtree"
+	"github.com/arafathusayn/herdsman/sdk/client"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 const (
@@ -40,6 +46,14 @@ type WorktreeService struct {
 	StateDir    string // Empty resolves the account's state folder.
 	FileCap     int64  // Largest file a snapshot captures; 0 is the default.
 	ConfigDir   string // Folder of the user's file; empty uses the standard one.
+	// Backend refuses a task launch whose execution backend, resolved for the
+	// repository, this build cannot run; nil checks nothing.
+	Backend func(ctx context.Context, repo string) error
+	// OnCore reports a repository whose task agents run on herdr-core; nil
+	// means the TUI.
+	OnCore func(ctx context.Context, repo string) bool
+	// CoreTask starts a task agent on herdr-core.
+	CoreTask func(ctx context.Context, q route.TaskLaunch) (route.TaskStarted, error)
 
 	caller  []string         // The caller's environment; nil means this process's.
 	tasks   *taskJournal     // Nil runs the effects without an operation.
@@ -218,8 +232,27 @@ type WorktreeHookResponse struct {
 	Result   string                `json:"result,omitempty"`
 }
 
-// WorktreeCall serves one verb for the command line in this process.
+// WorktreeCall keeps local git-only verbs in this process. Agent launches
+// must use the daemon so backend selection, identity and notices are enforced.
 func WorktreeCall(ctx context.Context, method string, request []byte) ([]byte, error) {
+	if method == "New" {
+		var req WorktreeNewRequest
+		if err := json.Unmarshal(request, &req); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(req.Agent) != "" {
+			sdk, err := client.Dial(client.Options{})
+			if err != nil {
+				return nil, err
+			}
+			defer sdk.Close()
+			res, err := sdk.Ledger.NewWorktree(ctx, &daemonv1.NewWorktreeRequest{Dir: req.Dir, Task: req.Task, Base: req.Base, From: req.From, Type: req.Type, Agent: req.Agent, Prompt: req.Prompt, NoSetup: req.NoSetup, Clobber: req.Clobber, Integrator: req.Integrator})
+			if err != nil {
+				return nil, err
+			}
+			return res.GetResult(), nil
+		}
+	}
 	return (&WorktreeService{}).Call(ctx, method, request)
 }
 
@@ -469,12 +502,16 @@ func (r *repository) clearPath(path string, clobber bool) error {
 }
 
 // create makes the tree through herdr when it answers, else through git. With
-// an empty start the branch already exists.
-func (s *WorktreeService) create(ctx context.Context, r *repository, shape taskShape, task, branch, path, start string, resp *WorktreeNewResponse) error {
+// an empty start the branch already exists. A task whose agent runs on
+// herdr-core makes its tree with git alone: no TUI workspace is opened.
+func (s *WorktreeService) create(ctx context.Context, r *repository, shape taskShape, task, branch, path, start string, onCore bool, resp *WorktreeNewResponse) error {
 	if shape.ownClone {
 		return r.cloneTask(ctx, branch, path, start)
 	}
-	client := s.herdrClient(ctx)
+	var client *herdr.Client
+	if !onCore {
+		client = s.herdrClient(ctx)
+	}
 	if client != nil && start != "" {
 		params := map[string]any{"cwd": r.main, "branch": branch, "base": start, "path": path, "label": task, "focus": false}
 		err := client.Call(ctx, "worktree.create", params, nil)
@@ -509,9 +546,6 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err := wtree.ValidateTask(req.Task); err != nil {
 		return resp, err
 	}
-	if _, err := splitAgentCommand(req.Agent); err != nil {
-		return resp, err
-	}
 	r, err := s.open(ctx, req.Dir)
 	if err != nil {
 		return resp, err
@@ -524,6 +558,31 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	command, err := shape.admit(req.Agent)
 	if err != nil {
 		return resp, err
+	}
+	// A task that launches an agent resolves its backend as up does, before
+	// anything is made.
+	if strings.TrimSpace(req.Agent) != "" && s.Backend != nil {
+		if err := s.Backend(ctx, r.main); err != nil {
+			return resp, err
+		}
+	}
+	// Core tasks use git worktrees or restricted clones and launch through
+	// the authenticated core wrapper. Validate before creating either tree.
+	onCore := strings.TrimSpace(req.Agent) != "" && s.OnCore != nil && s.OnCore(ctx, r.main)
+	if onCore {
+		if _, err := compileCoreTask(req.Agent); err != nil {
+			return resp, err
+		}
+	}
+	if !onCore {
+		if _, err := splitAgentCommand(req.Agent); err != nil {
+			return resp, err
+		}
+	}
+	if onCore && shape.ownClone {
+		if err := profile.CheckCoreHarnessArgs(command[1:]); err != nil {
+			return resp, err
+		}
 	}
 	kind := req.Type
 	if kind == "" {
@@ -566,7 +625,7 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err := r.clearPath(path, req.Clobber); err != nil {
 		return resp, err
 	}
-	spec := treeSpec{Main: r.main, Task: req.Task, Branch: branch, Path: path, Start: start, OwnClone: shape.ownClone}
+	spec := treeSpec{Main: r.main, Task: req.Task, Branch: branch, Path: path, Start: start, OwnClone: shape.ownClone, GitOnly: onCore}
 	if request != nil {
 		spec.Identity = request.identity
 	}
@@ -592,7 +651,7 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 		resp.Warnings = append(resp.Warnings, "integrator has no effect outside the restricted profile")
 	}
 	if req.Agent != "" {
-		if !resp.Herdr {
+		if !resp.Herdr && !onCore {
 			resp.Warnings = append(resp.Warnings, "the agent was not started; run the launch line")
 		}
 	} else if req.Prompt != "" {
@@ -601,10 +660,59 @@ func (s *WorktreeService) New(ctx context.Context, req WorktreeNewRequest) (Work
 	if err := s.finishNew(ctx, r, req, vars, before, after, &resp); err != nil {
 		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
 	}
+	if onCore {
+		if err := s.enterCore(ctx, r, req, &resp); err != nil {
+			return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
+		}
+		return resp, nil
+	}
 	if err := s.enterWorkspace(ctx, req, &resp); err != nil {
 		return resp, fmt.Errorf("worktree %s was created, but: %w", path, err)
 	}
 	return resp, nil
+}
+
+// enterCore starts the task's agent on herdr-core: a core execution through
+// the launch transaction, its prompt a task notice. Nothing is typed; the
+// start line is a person's, and a step that waits on a person is a warning.
+func (s *WorktreeService) enterCore(ctx context.Context, r *repository, req WorktreeNewRequest, resp *WorktreeNewResponse) error {
+	if s.CoreTask == nil {
+		return errors.New("this daemon cannot start a task agent on herdr-core")
+	}
+	spec, err := compileCoreTask(req.Agent)
+	if err != nil {
+		return err
+	}
+	q := route.TaskLaunch{Repo: r.main, Path: resp.Path, Task: resp.Task, Branch: resp.Branch, Command: spec.Command, Env: spec.Env, Prelude: spec.Prelude, Prompt: req.Prompt}
+	shape, err := s.shapeOf(r)
+	if err != nil {
+		return err
+	}
+	if shape.ownClone {
+		role := profile.RoleImplementer
+		if req.Integrator {
+			role = profile.RoleIntegrator
+		}
+		roots, err := profile.ResolveRoots(profile.RootRequest{Policy: shape.policy, Role: role, TaskRoot: resp.Path, Protected: shape.protected})
+		if err != nil {
+			return err
+		}
+		q.RestrictedRoots = &roots
+	}
+	got, err := s.CoreTask(ctx, q)
+	if err != nil {
+		return fmt.Errorf("the agent did not start on herdr-core: %w", err)
+	}
+	resp.AgentName = resp.Task
+	resp.Launch = "cd " + resp.Path
+	resp.Warnings = append(resp.Warnings, "herdr-core execution "+got.Execution.ID+": a person submits the start line in the app")
+	if got.Notice != "" {
+		resp.Warnings = append(resp.Warnings, "the prompt waits for the agent as notice "+got.Notice)
+	}
+	if got.Waiting != "" {
+		resp.Warnings = append(resp.Warnings, "the launch waits on a person: "+got.Waiting)
+	}
+	return nil
 }
 
 // quoteForShell makes text one word for a shell.
@@ -1321,4 +1429,22 @@ func (s *WorktreeService) describeHooks(r *repository, store *hooks.Approvals, t
 	}
 	resp.OK = true
 	return resp, nil
+}
+
+// compileCoreTask uses the same launch grammar as route coordinators. Validate
+// before creating a worktree, and retain quoted arguments as single words.
+func compileCoreTask(line string) (launch.Spec, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return launch.Spec{}, err
+	}
+	spec, err := launch.Compile(line, launch.Options{Home: home})
+	if err != nil {
+		return spec, err
+	}
+	adapter, err := core.AdapterFor(filepath.Base(spec.Command[0]))
+	if err != nil {
+		return spec, err
+	}
+	return spec, adapter.CheckArgs(spec.Command[1:])
 }

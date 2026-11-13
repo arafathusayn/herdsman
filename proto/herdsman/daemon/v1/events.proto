@@ -92,3 +92,32 @@ message Lagged {
 message Ping {
   string nonce = 1;
 }
+
+// RuntimeEvent is the JSON payload of an Event on the "runtime" topic, whose
+// type is the event's kind (herdr-core backend spec, sections 10 to 12). Kinds:
+// "execution_lost", "execution_replaced", "identity_changed",
+// "visibility_changed", "inventory_fault", "needs_attention" (reason
+// "notice_waiting", "interrupted", "compaction_due", "goal_paused",
+// "start_line", "dialog", or one of the card watch's "side_agent_cards",
+// "relay_failed", "read_failed" and "identity_lost"), "not_waiting", "notice_held" (reason: the gate), "claim_stuck",
+// "notice_outcome" (outcome other than "completed"), "notice_returned",
+// "report_outcome" (outcome "reported", "report_timeout",
+// "report_unavailable" or "not_reached"), "submit_unresolved",
+// "resume_partial" and "pause_pending".
+message RuntimeEvent {
+  string kind = 1;
+  string repo = 2;
+  string route = 3;
+  string execution_id = 4;
+  // A short machine word, such as the gate of notice_held.
+  string reason = 5;
+  // Words for a person; never task content.
+  string detail = 6;
+  string notice_id = 7;
+  // A notice's or a stop report's outcome.
+  string outcome = 8;
+  // Milliseconds since the Unix epoch.
+  int64 time = 9;
+  // A line a person may type in the agent's pane, for needs_attention.
+  string line = 10;
+}

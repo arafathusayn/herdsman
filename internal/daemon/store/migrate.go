@@ -20,6 +20,11 @@ import (
 //go:embed schema/account/*.sql schema/route/*.sql
 var schemaFS embed.FS
 
+// runSQL makes temp.migration_run, which migrate fills for the files it runs.
+//
+//go:embed schema/migration_run.sql
+var runSQL string
+
 // BuildVersion is the herdsman version written to meta.created_by and
 // meta.migrated_by.<n>; the daemon sets it before its first Open.
 var BuildVersion = "dev"
@@ -151,6 +156,13 @@ func migrate(c Conn, dbPath string, kind Kind, fsys fs.FS) error {
 			return err
 		}
 	}
+	// A migration that writes a value once reads whether this run created
+	// the store (fresh = 1) or upgrades one that existed. The table lives in
+	// the connection's temporary schema and is gone after the run.
+	if err := migrationRun(c, v == 0); err != nil {
+		return fmt.Errorf("store: %w: %s: %v", ErrMigration, kind, err)
+	}
+	defer func() { _, _ = c.Exec("DELETE FROM temp.migration_run") }()
 	for _, m := range ms[v:] {
 		err := c.Tx(func(c Conn) error {
 			if err := execScript(c, m.sql); err != nil {
@@ -171,6 +183,22 @@ func migrate(c Conn, dbPath string, kind Kind, fsys fs.FS) error {
 		}
 	}
 	return nil
+}
+
+// migrationRun writes temp.migration_run, the one fact a migration file may
+// read about the run itself: whether the store was created by it.
+func migrationRun(c Conn, fresh bool) error {
+	n := 0
+	if fresh {
+		n = 1
+	}
+	return c.Tx(func(tx Conn) error {
+		if err := execScript(tx, runSQL); err != nil {
+			return err
+		}
+		_, err := tx.Exec("INSERT INTO temp.migration_run(fresh) VALUES (?)", n)
+		return err
+	})
 }
 
 // backupPath is the copy taken before migrating from version v.

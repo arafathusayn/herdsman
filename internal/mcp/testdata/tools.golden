@@ -537,6 +537,38 @@
     }
   },
   {
+    "name": "daemon_message_resume_goal",
+    "description": "Calls herdsman.daemon.v1.MessageService/ResumeGoal. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "daemon_message_send",
     "description": "Calls herdsman.daemon.v1.MessageService/Send. Changes state.",
     "inputSchema": {
@@ -714,6 +746,475 @@
     }
   },
   {
+    "name": "daemon_project_bind",
+    "description": "Calls herdsman.daemon.v1.ProjectService/Bind. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "folder": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "route": {
+              "$ref": "#/$defs/herdsman.core.v1.RouteId"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "folder": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/herdsman.daemon.v1.Scope"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_project_context_check",
+    "description": "Calls herdsman.daemon.v1.ProjectService/ContextCheck. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "folder": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "route": {
+              "$ref": "#/$defs/herdsman.core.v1.RouteId"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/herdsman.daemon.v1.Scope"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_project_context_init",
+    "description": "Calls herdsman.daemon.v1.ProjectService/ContextInit. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "folder": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "route": {
+              "$ref": "#/$defs/herdsman.core.v1.RouteId"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/herdsman.daemon.v1.Scope"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_project_context_note",
+    "description": "Calls herdsman.daemon.v1.ProjectService/ContextNote. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "folder": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "route": {
+              "$ref": "#/$defs/herdsman.core.v1.RouteId"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "parents": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "repos": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/herdsman.daemon.v1.Scope"
+        },
+        "task": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_project_create",
+    "description": "Calls herdsman.daemon.v1.ProjectService/Create. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.ProjectRepo": {
+          "additionalProperties": false,
+          "properties": {
+            "default_branch": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "remote": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "folder": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "repos": {
+          "items": {
+            "$ref": "#/$defs/herdsman.core.v1.ProjectRepo"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_project_get",
+    "description": "Calls herdsman.daemon.v1.ProjectService/Get.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "folder": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "route": {
+              "$ref": "#/$defs/herdsman.core.v1.RouteId"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/herdsman.daemon.v1.Scope"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_project_list",
+    "description": "Calls herdsman.daemon.v1.ProjectService/List.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "include_archived": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_project_log",
+    "description": "Calls herdsman.daemon.v1.ProjectService/Log. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "folder": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "route": {
+              "$ref": "#/$defs/herdsman.core.v1.RouteId"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "json": {
+          "type": "boolean"
+        },
+        "page_token": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/herdsman.daemon.v1.Scope"
+        },
+        "since": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "task": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_project_unbind",
+    "description": "Calls herdsman.daemon.v1.ProjectService/Unbind. Changes state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "folder": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_project_update",
+    "description": "Calls herdsman.daemon.v1.ProjectService/Update. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.ProjectRepo": {
+          "additionalProperties": false,
+          "properties": {
+            "default_branch": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "remote": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "folder": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "route": {
+              "$ref": "#/$defs/herdsman.core.v1.RouteId"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "add_repos": {
+          "items": {
+            "$ref": "#/$defs/herdsman.core.v1.ProjectRepo"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "remove_repos": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/herdsman.daemon.v1.Scope"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "daemon_route_delete",
     "description": "Calls herdsman.daemon.v1.RouteService/Delete. Only plans: dry_run must be true, and the plan is returned with nothing done.",
     "inputSchema": {
@@ -860,6 +1361,33 @@
           },
           "type": "object"
         },
+        "herdsman.core.v1.RuntimeRef": {
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "type": "string"
+            },
+            "endpoint_id": {
+              "type": "string"
+            },
+            "execution_id": {
+              "type": "string"
+            },
+            "generation": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "pane": {
+              "type": "string"
+            },
+            "terminal_address": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
         "herdsman.daemon.v1.UpCaller": {
           "additionalProperties": false,
           "properties": {
@@ -877,6 +1405,9 @@
                 "integer",
                 "string"
               ]
+            },
+            "runtime": {
+              "$ref": "#/$defs/herdsman.core.v1.RuntimeRef"
             },
             "started": {
               "type": [
@@ -974,6 +1505,33 @@
           },
           "type": "object"
         },
+        "herdsman.core.v1.RuntimeRef": {
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "type": "string"
+            },
+            "endpoint_id": {
+              "type": "string"
+            },
+            "execution_id": {
+              "type": "string"
+            },
+            "generation": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "pane": {
+              "type": "string"
+            },
+            "terminal_address": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
         "herdsman.daemon.v1.StepVerdict": {
           "additionalProperties": false,
           "properties": {
@@ -1006,6 +1564,9 @@
                 "string"
               ]
             },
+            "runtime": {
+              "$ref": "#/$defs/herdsman.core.v1.RuntimeRef"
+            },
             "started": {
               "type": [
                 "integer",
@@ -1025,6 +1586,9 @@
           "type": "string"
         },
         "adjutant_kind": {
+          "type": "string"
+        },
+        "backend": {
           "type": "string"
         },
         "caller": {
@@ -1087,6 +1651,427 @@
     "annotations": {
       "readOnlyHint": true,
       "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_runtime_doctor",
+    "description": "Calls herdsman.daemon.v1.RuntimeService/Doctor.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_runtime_get_default",
+    "description": "Calls herdsman.daemon.v1.RuntimeService/GetDefault.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_runtime_get_execution",
+    "description": "Calls herdsman.daemon.v1.RuntimeService/GetExecution.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_runtime_list_executions",
+    "description": "Calls herdsman.daemon.v1.RuntimeService/ListExecutions.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/herdsman.core.v1.RouteId"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_runtime_show",
+    "description": "Calls herdsman.daemon.v1.RuntimeService/Show. Changes state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_task_create",
+    "description": "Calls herdsman.daemon.v1.TaskService/Create. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "folder": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "route": {
+              "$ref": "#/$defs/herdsman.core.v1.RouteId"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "repos": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/herdsman.daemon.v1.Scope"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_task_get",
+    "description": "Calls herdsman.daemon.v1.TaskService/Get.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "folder": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "route": {
+              "$ref": "#/$defs/herdsman.core.v1.RouteId"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/herdsman.daemon.v1.Scope"
+        },
+        "task": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_task_link",
+    "description": "Calls herdsman.daemon.v1.TaskService/Link. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "folder": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "route": {
+              "$ref": "#/$defs/herdsman.core.v1.RouteId"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "link": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/herdsman.daemon.v1.Scope"
+        },
+        "task": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_task_list",
+    "description": "Calls herdsman.daemon.v1.TaskService/List.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "folder": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "route": {
+              "$ref": "#/$defs/herdsman.core.v1.RouteId"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "all": {
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/herdsman.daemon.v1.Scope"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "daemon_task_update",
+    "description": "Calls herdsman.daemon.v1.TaskService/Update. Changes state.",
+    "inputSchema": {
+      "$defs": {
+        "herdsman.core.v1.RouteId": {
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "herdsman.daemon.v1.Scope": {
+          "additionalProperties": false,
+          "properties": {
+            "folder": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string"
+            },
+            "route": {
+              "$ref": "#/$defs/herdsman.core.v1.RouteId"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "add_labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "add_repos": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "body": {
+          "type": "string"
+        },
+        "remove_labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "remove_repos": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/herdsman.daemon.v1.Scope"
+        },
+        "status": {
+          "type": "string"
+        },
+        "task": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
       "openWorldHint": false
     }
   },

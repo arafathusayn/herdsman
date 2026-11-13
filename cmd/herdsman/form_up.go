@@ -16,6 +16,7 @@ import (
 	"github.com/arafathusayn/herdsman/internal/tui"
 	"github.com/arafathusayn/herdsman/internal/tui/forms"
 	"github.com/arafathusayn/herdsman/sdk/config"
+	daemonv1 "github.com/arafathusayn/herdsman/sdk/daemon/v1"
 )
 
 // planTimeout bounds the run that fills a form's last screen.
@@ -163,6 +164,73 @@ func openUpForm(args *[]string, stdin io.Reader, stdout, stderr io.Writer) (int,
 		if err != nil {
 			path = ""
 		}
-		return forms.Up(forms.UpDefaults{Common: formCommon(), Harnesses: foundHarnesses(), Config: path}), true
+		backend, note := formBackend(repoRoot(), path)
+		return forms.Up(forms.UpDefaults{Common: formCommon(), Harnesses: foundHarnesses(), Config: path, Backend: backend, BackendNote: note}), true
 	})
+}
+
+// formBackend prefills the up form's backend field from what up would do
+// without --backend: the daemon's doctor resolves the config file, the
+// installation default and the experiment marker, and says whether the
+// backend can run here. A backend the doctor says cannot run is not
+// offered first; the other one is, and the label says why. Without a
+// daemon, the config file's own [runtime] backend is shown as it stands.
+func formBackend(repo, configPath string) (backend, note string) {
+	service, closeService, err := dialRuntime()
+	if err == nil {
+		defer closeService()
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		report, derr := service.Doctor(ctx, &daemonv1.RuntimeServiceDoctorRequest{Repo: repo, ConfigPath: configPath})
+		if derr == nil {
+			return backendFromDoctor(report)
+		}
+		err = derr
+	}
+	if configPath != "" {
+		if file, ferr := config.ReadFile(configPath); ferr == nil {
+			if b := file.Config.GetRuntime().GetBackend(); b != "" {
+				return b, "from the config file; the daemon did not answer"
+			}
+		}
+	}
+	return "", "the daemon did not answer: " + firstLine(err.Error())
+}
+
+// backendFromDoctor is the form's prefill from a doctor report.
+func backendFromDoctor(report *daemonv1.RuntimeServiceDoctorResponse) (backend, note string) {
+	sel := report.GetSelection()
+	if sel.GetBackend() == "" {
+		for _, c := range report.GetChecks() {
+			if c.GetName() == "selection" {
+				return backendTUIName, "the doctor refused the selection: " + firstLine(c.GetDetail())
+			}
+		}
+		return backendTUIName, "the doctor selected no backend"
+	}
+	note = "from " + sel.GetSource()
+	if sel.GetConfigPath() != "" {
+		note += " " + sel.GetConfigPath()
+	}
+	for _, b := range report.GetBackends() {
+		if b.GetBackend() == sel.GetBackend() && !b.GetAvailable() {
+			other := backendTUIName
+			if sel.GetBackend() == backendTUIName {
+				other = backendCore
+			}
+			return other, fmt.Sprintf("%s %s cannot run here: %s", sel.GetBackend(), note, firstLine(b.GetReason()))
+		}
+	}
+	if sel.GetExperiment() != "" {
+		note += ", an experiment"
+	}
+	return sel.GetBackend(), note
+}
+
+// backendTUIName is the Herdr TUI backend's name, as the daemon reports it.
+const backendTUIName = "herdr-tui"
+
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
 }

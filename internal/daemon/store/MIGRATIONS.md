@@ -17,7 +17,35 @@ needs no line. Those are noted below for the reader.
 - Version 2 adds the operation journal: `operations`, `operation_steps`,
   `operation_locks` and `outbox`. Existing rows are untouched.
 - Version 4 adds the snapshot records: `snapshots`. Existing rows are untouched.
+- Version 5 adds the installation default backend, `installation`, and the
+  execution records of routes the operation journal starts, `executions`. It
+  writes one row into `installation`, once: `herdr-tui` with source
+  `existing-store` when it upgrades a store that already existed, and
+  `herdr-core` with source `new-store` when the store is created new. Existing rows are
+  untouched. An older herdsman refuses a store of version 5 with
+  `ErrSchemaNewer`; going back to the Herdr TUI is the config line
+  `backend = "herdr-tui"` on this version, not a downgrade. Fixture:
+  `testdata/schema-4`.
+- Version 6 adds the notices of herdr-core executions and what their gates
+  read: `notices`, `notice_waits`, `notice_routes`, `notice_approvals`, and a
+  person's typed submits, `typed_submits`. Every table starts empty and
+  existing rows are untouched.
+- Version 7 adds `executions.experiment`, the version label of the
+  experimental backend that wrote an execution record. It is a new column
+  only. Existing rows get one value: `runtime.core/0.1.0` on a `herdr-core`
+  record, which only the experiment has written, and empty on a `herdr-tui`
+  record. No other column changes. Fixture: `testdata/schema-6`.
+
+## Route
+
+- Version 2 adds the execution records, `executions`, and the route's backend,
+  `route_runtime`. Both start empty; `parties` and `launches` keep their
+  columns. Fixture: `testdata/schema-1` and `testdata/schema-4`.
+- Version 3 adds `executions.experiment`, as account version 7 does, with
+  the same values for existing rows. Fixture: `testdata/schema-6`.
 
 ## Listed transformations
 
-None yet.
+- account 5: added installation.*
+- account 7: added executions.experiment
+- route 3: added executions.experiment
