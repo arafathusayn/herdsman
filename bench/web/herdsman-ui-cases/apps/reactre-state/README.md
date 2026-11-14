@@ -2,7 +2,7 @@
 
 One application using `@reactre/core`, `@reactre/state` and the upstream
 compilers from Herdsman's source submodule, pinned at
-`8bae29b9fce00ab1e192f906e15191c6057550d7` (Reactre main when added).
+`f0cb6cb9f7d9c9a96c25fb25ece2d54adb702c27` (Reactre main verified for the update).
 The existing `re` entry is the separate `@re/core` library; it is unchanged.
 
 The [core + built-in signals entry](../reactre-signals/) uses the same
@@ -11,8 +11,10 @@ comparison changes only snapshot ownership and its bridge.
 
 Every fresh driver snapshot enters a compiled state actor. The upstream
 `useActor` bridge connects it to core; no second writable UI model exists.
-The finite benchmark contracts are directly typed, unlike Herdsman's SDK
-boundary, which also needs to encode optional fields and collections.
+The benchmark contracts are directly typed. Herdsman's application snapshot now
+also uses structural JSON contracts; generic request and collection adapters
+retain their extended codec. This benchmark already avoided string conversion,
+so upstream's immutable-data conversion measurements do not predict its speed.
 
 Team, Activity and Checklist derive keyed row projections. Updates compare
 each row's fields, retaining equal rows for core's keyed rendering. Initial
@@ -25,6 +27,10 @@ Per-lane memos retain unchanged member lists and counts. Activity bodies use
 flat templates for their possible shapes, reducing nested DOM cleanup when
 events leave the feed. Tests exercise same-key field changes, optional bodies,
 selection and disposal through the actual compiled app factory.
+The latest shared renderer uses typed row equality, stable lane projections and
+weakly cached keys for retained event rows. Log classes compile as static holes;
+empty-lane placeholders use the existing count memo. See the [paired profiles](../../TOP2-PROFILING.md)
+for improvements, tradeoffs, rejected experiments and source hashes.
 This is ordinary per-key reconciliation, permitted by the contract and also
 used by the other entries. It never compares whole snapshots, reads operation
 names, caches operation results or skips the actor transition. Tabs dispose

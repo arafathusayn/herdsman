@@ -19,6 +19,7 @@ function equalFields<T extends object>(a: T, b: T): boolean {
 export function rows<T extends object>(
   read: () => readonly T[],
   keyOf: (row: T) => string,
+  equal: (a: T, b: T) => boolean = equalFields,
 ) {
   let previous: Map<string, T> | undefined;
   let list: readonly T[] | undefined;
@@ -29,7 +30,7 @@ export function rows<T extends object>(
     if (list === undefined) return (list = input.slice());
     if (
       input.length === list.length &&
-      input.every((row, i) => equalFields(row, list![i]!))
+      input.every((row, i) => equal(row, list![i]!))
     )
       return list;
     previous ??= new Map(list.map((row) => [keyOf(row), row]));
@@ -40,7 +41,7 @@ export function rows<T extends object>(
       const value = input[i]!;
       const key = keyOf(value);
       const old = previous.get(key);
-      const row = old && equalFields(value, old) ? old : value;
+      const row = old && equal(value, old) ? old : value;
       next.set(key, row);
       items.push(row);
       if (list[i] !== row) same = false;
@@ -49,4 +50,32 @@ export function rows<T extends object>(
     if (!same) list = items;
     return list;
   });
+}
+
+/** Retain a derived list when its item identities and order are unchanged. */
+export function stableList<T>(read: () => readonly T[]) {
+  let previous: readonly T[] = [];
+  return memo(() => {
+    const next = read();
+    if (
+      next.length === previous.length &&
+      next.every((item, i) => item === previous[i])
+    )
+      return previous;
+    return (previous = next);
+  });
+}
+
+/** A retained immutable row keeps its canonical key. New snapshots are still
+ * reconciled with keyOf; the renderer need not reconstruct retained keys. */
+export function cachedKey<T extends object>(keyOf: (row: T) => string) {
+  const keys = new WeakMap<T, string>();
+  return (row: T): string => {
+    let key = keys.get(row);
+    if (key === undefined) {
+      key = keyOf(row);
+      keys.set(row, key);
+    }
+    return key;
+  };
 }

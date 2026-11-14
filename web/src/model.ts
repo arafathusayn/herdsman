@@ -229,7 +229,12 @@ export function ago(iso: string, now = Date.now()): string {
 }
 
 /** How far a checklist is: done, not applicable (`[-]`, settled with a reason) and open lines. */
-export function checklistCounts(items: CheckItem[]): { done: number; skipped: number; open: number; total: number } {
+export function checklistCounts(items: readonly CheckItem[]): {
+  done: number;
+  skipped: number;
+  open: number;
+  total: number;
+} {
   const done = items.filter((i) => i.done).length;
   const skipped = items.filter((i) => !i.done && i.skipped).length;
   return { done, skipped, open: items.length - done - skipped, total: items.length };
@@ -244,7 +249,7 @@ export function afterSend(sent: string, current: string): string {
 }
 
 /** A route's name, with its project folder when another route has the same name. */
-export function routeLabel(r: Route, all: Route[]): string {
+export function routeLabel(r: Route, all: readonly Route[]): string {
   if (!all.some((x) => x.id !== r.id && x.name === r.name)) return r.name;
   const project = r.dir.split("/").at(-3) ?? ""; // <project>/.herdsman/<route>
   return project ? `${r.name} · ${project}` : r.name;
@@ -254,7 +259,7 @@ export function routeLabel(r: Route, all: Route[]): string {
  * The route a link names: by its id, or, for a link from before ids had a
  * hash, by its folder name while only one route has that name.
  */
-export function routeFor(routes: Route[], key: string): Route | null {
+export function routeFor(routes: readonly Route[], key: string): Route | null {
   const byId = routes.find((r) => r.id === key);
   if (byId) return byId;
   const named = routes.filter((r) => r.name === key);
@@ -279,7 +284,7 @@ export function nextView(view: View, patch: Partial<View>): View {
  * when the view already names a route by id or names none. It is the same
  * route, so the open artifact stays.
  */
-export function canonicalRoute(routes: Route[], view: View): Partial<View> | null {
+export function canonicalRoute(routes: readonly Route[], view: View): Partial<View> | null {
   const r = routeFor(routes, view.route);
   if (!r || r.id === view.route) return null;
   return { route: r.id, artifact: view.artifact };

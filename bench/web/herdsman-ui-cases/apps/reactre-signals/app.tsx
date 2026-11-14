@@ -12,9 +12,11 @@ export function createApp(root: HTMLElement, onSelect: (pane: string) => void) {
     render = (next) => {
       write(next);
     };
+    // render accepts only State, so the value never returns to null. The guard
+    // can mount once while Tabs reads the signal without a retained-value memo.
     return (
       <Show when={state()}>
-        {(s) => <Tabs state={s()} onSelect={onSelect} />}
+        <Tabs state={state()!} onSelect={onSelect} />
       </Show>
     );
   }, root);

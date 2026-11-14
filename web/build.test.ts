@@ -1,11 +1,48 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { reactre } from "./reactre.ts";
+import { reactre, sourceCompiler } from "./reactre.ts";
 import { type FakeElement, installFakeDocument } from "./src/test-dom-core.ts";
 import { dispatch, find } from "./src/testdom.ts";
+
+test("source analysis rejects opaque plugin imports unless explicitly external", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "herdsman-analysis-"));
+  const entry = join(dir, "entry.ts");
+  try {
+    await writeFile(entry, 'import { value } from "opaque-test-module"; export { value };');
+    const virtual = {
+      name: "opaque-test-module",
+      setup(build: import("bun").PluginBuilder) {
+        build.onResolve({ filter: /^opaque-test-module$/ }, () => ({ path: "opaque", namespace: "test" }));
+        build.onLoad({ filter: /.*/, namespace: "test" }, () => ({ contents: "export const value = 1", loader: "js" }));
+      },
+    } satisfies import("bun").BunPlugin;
+    const compile = (external: string[]) =>
+      Bun.build({
+        entrypoints: [entry],
+        target: "browser",
+        external,
+        plugins: [...(external.length ? [] : [virtual]), sourceCompiler(/\.ts$/)],
+      });
+    // Bun versions may reject the build promise or return failed logs.
+    const rejected = await compile([]).then(
+      (result) => ({ failed: !result.success, message: result.logs.map(String).join("\n") }),
+      (error: unknown) => ({
+        failed: true,
+        message: error instanceof AggregateError ? error.errors.map(String).join("\n") : String(error),
+      }),
+    );
+    expect(rejected.failed).toBe(true);
+    expect(rejected.message).toContain("opaque-test-module");
+    const external = await compile(["opaque-test-module"]);
+    expect(external.success).toBe(true);
+    expect(await external.outputs[0]!.text()).toContain('"opaque-test-module"');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test("vendored Reactre compiles TSX and updates keyed DOM without installed packages", async () => {
   const outdir = await mkdtemp(join(tmpdir(), "herdsman-reactre-"));

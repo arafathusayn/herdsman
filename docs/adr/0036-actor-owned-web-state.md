@@ -12,7 +12,7 @@ owners of their subscriptions. Requests implemented cancellation separately.
 
 Use `@reactre/state` for all application and interactive UI state. Pin the
 Reactre source submodule to main commit
-`8bae29b9fce00ab1e192f906e15191c6057550d7`, retaining its Apache-2.0 license.
+`f0cb6cb9f7d9c9a96c25fb25ece2d54adb702c27`, retaining its Apache-2.0 license.
 Both tests and production compile `.machine.ts` with the upstream state
 compiler and other TS/TSX with the core compiler.
 
@@ -24,23 +24,37 @@ offline builds. `web/build.test.ts` checks the build dependency budget and
 hashes; the existing daily OSV check includes the npm pins. See the parser's
 `VENDOR.md` for reproducible updates and its manifest-only patches.
 
-`valueState` owns drafts, selections, preferences and SDK data in value actors.
+`appMachine` owns the application snapshot as a typed immutable JSON payload.
+`valueState` owns other drafts, selections, preferences and SDK data in value actors.
 `createRequest` owns asynchronous phases, results and failures. `observeActor`
 projects specialized machines. Core signals in these three adapters only notify
 subscribers: all values come from actor snapshots. Memos, keyed list accessors
 and effects derive values or connect resources. `web/ownership.test.ts` rejects
 competing state primitives in production UI.
 
-Upstream contracts exclude optional properties, dynamic records, Map/Set,
-callbacks and class instances. The existing SDK uses the first four. The
-data-only `wire` boundary encodes them losslessly into string contracts,
-including bigint and typed SDK/auth errors. It only decodes locally encoded
-data, not untrusted persisted snapshots. Decoded projections reject mutation,
-including collection methods. Workflow control fields remain explicit typed
-state/event contracts. Serialization costs allocation. Independently changing
-domains use separate actors so small updates retain unrelated decoded
-projections. Direct normalized SDK contracts would require a
-separate upstream capability/design change.
+Upstream now accepts nested optional properties and string-keyed records while
+keeping outer state/event fields required. The application snapshot's server,
+channel, activity and navigation data use those contracts directly. Its ingress
+calls `immutableData` on each incoming patch, outside transitions: runtime checks,
+deep copying and freezing apply in production too. Equal domains retain their old
+references, and unchanged patches do not dispatch. Comparing checked JSON data
+preserves the former wire equality, including property order, without allocating
+encoded strings. Small updates never copy unrelated server/history payloads.
+
+Map/Set, bigint, explicit undefined, callbacks and class instances remain outside
+the JSON contract. Generic requests and collection-valued state retain the
+data-only `wire` codec, including typed SDK/auth errors, and immutable decoded
+projections. Service callbacks and transport resources stay outside snapshots.
+Request result identity, failure/retry, stale-data display, cancellation and
+promise settlement are unchanged. The upstream lifecycle examples document
+existing mechanisms; cache retention, authorization invalidation and eviction
+remain downstream policy.
+
+`immutableData` checks JSON representability, not domain schemas: unknown network
+or stored input still needs schema validation. App initialization reapplies the
+copy/freeze boundary after JSON restoration. These app actors are not persisted;
+URL/theme persistence formats are unchanged. Future persisted machine changes
+from strings to object payloads require a versioned migration.
 
 DOM nodes, observers, transport readers, callbacks, disposers, ID allocators and
 timer handles remain resources outside snapshots. Pure transformations and
@@ -55,8 +69,9 @@ The build gains a pinned parser and its integrity/advisory checks. Serialization
 adds allocation at the SDK boundary; browser behavior and performance-sensitive
 terminal interaction remain covered by regression tests.
 
-Application domains, terminal controls, output text and palette have separate
-actors. The ANSI view reconciles native node handles in one effect, avoiding
+The application actor shares unchanged domain payloads. Terminal controls, output
+text, palette and workflow controllers keep their separately scoped actors.
+The ANSI view reconciles native node handles in one effect, avoiding
 per-run reactive owners while preserving unchanged spans. See the
 [responsiveness probe](../../web/e2e/PERFORMANCE.md) for measured before/after
 results, the large-load regression fixture and remaining initial-load costs.

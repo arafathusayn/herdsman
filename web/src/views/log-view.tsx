@@ -12,10 +12,10 @@ export type PageReader = (
   route: string,
   before: number,
   signal?: AbortSignal,
-) => Promise<{ lines: LogLine[]; older: number; history?: string | undefined }>;
+) => Promise<{ lines: readonly LogLine[]; older: number; history?: string | undefined }>;
 interface Seen {
   lo: number;
-  lines: LogLine[];
+  lines: readonly LogLine[];
   history: string | undefined;
 }
 export const SEEN_ROUTES = 4;
@@ -58,7 +58,7 @@ function joined(route: Route, previous: Seen | undefined): Seen & { cached: bool
   };
 }
 
-function LogLines(props: { lines: LogLine[] }) {
+function LogLines(props: { lines: readonly LogLine[] }) {
   const entries = memo(() => keyedOnce([...props.lines].reverse(), (line) => [line.time, line.text]));
   const rows = map(entries, (entry) => entry, { keyed: ([key]) => key });
   return (

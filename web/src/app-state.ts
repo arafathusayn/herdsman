@@ -1,7 +1,11 @@
-import { batch, memo } from "@reactre/core";
+import { memo, untrack } from "@reactre/core";
+import { createActor, type DeepReadonly } from "@reactre/state";
+import { immutableData } from "@reactre/state/data";
 
 import { nextView } from "./model.ts";
-import { valueState } from "./state/value.ts";
+import { appMachine } from "./state/app.machine.ts";
+import { equalData } from "./state/equal-data.ts";
+import { observeActor } from "./state/observe.ts";
 import type { Channel, Entry, State } from "./types.ts";
 import type { Theme } from "./ui.ts";
 
@@ -21,60 +25,61 @@ export interface View {
 }
 
 export interface App {
-  server: State | null;
-  entries: Entry[];
+  server: DeepReadonly<State> | null;
+  entries: readonly Entry[];
   connected: boolean;
   view: View;
   theme: Theme;
   fatal: string;
-  channel: Channel | null;
+  channel: DeepReadonly<Channel> | null;
 }
 
-/** Immutable application snapshots, owned by a Reactre state actor. */
+/** JSON data enters once, outside transitions. The actor shares unchanged
+ * domains so navigation never copies the server's route/log history. */
 export function createAppState(initial: App, navigate: (view: View, push: boolean) => void = () => {}) {
-  // Independently changing domains must not serialize the server's complete
-  // route/log history on every click, stream entry or connection heartbeat.
-  const [server, setServer] = valueState(initial.server);
-  const [entries, setEntries] = valueState(initial.entries);
-  const [connected, setConnected] = valueState(initial.connected);
-  const [view, setView] = valueState(initial.view);
-  const [theme, setTheme] = valueState(initial.theme);
-  const [fatal, setFatal] = valueState(initial.fatal);
-  const [channel, setChannel] = valueState(initial.channel);
-  const state = memo((): App =>
-    Object.freeze({
-      server: server(),
-      entries: entries(),
-      connected: connected(),
-      view: view(),
-      theme: theme(),
-      fatal: fatal(),
-      channel: channel(),
-    }),
-  );
+  const actor = createActor(appMachine, { input: { value: immutableData(initial) } });
+  const observed = observeActor(actor);
+  const state = memo(() => observed.read().data.value);
+  const retain = <T>(previous: T, next: T): T => (equalData(previous, next) ? previous : next);
+  const set = (patch: Partial<App>): void => {
+    // Validate representability before comparison, even for equal updates.
+    // Unknown transport data needs schema validation before this boundary.
+    const incoming = immutableData(patch);
+    const previous = untrack(state);
+    const value = {
+      server: "server" in incoming ? retain(previous.server, incoming.server) : previous.server,
+      entries: "entries" in incoming ? retain(previous.entries, incoming.entries) : previous.entries,
+      connected: "connected" in incoming ? incoming.connected : previous.connected,
+      view: "view" in incoming ? retain(previous.view, incoming.view) : previous.view,
+      theme: "theme" in incoming ? incoming.theme : previous.theme,
+      fatal: "fatal" in incoming ? incoming.fatal : previous.fatal,
+      channel: "channel" in incoming ? retain(previous.channel, incoming.channel) : previous.channel,
+    };
+    if (
+      value.server === previous.server &&
+      value.entries === previous.entries &&
+      value.connected === previous.connected &&
+      value.view === previous.view &&
+      value.theme === previous.theme &&
+      value.fatal === previous.fatal &&
+      value.channel === previous.channel
+    )
+      return;
+    actor.send({ type: "replace", value: Object.freeze(value) });
+  };
   return {
     state,
-    get app(): App {
+    get app() {
       return state();
     },
-    set(patch: Partial<App>): void {
-      batch(() => {
-        if ("server" in patch) setServer(patch.server!);
-        if ("entries" in patch) setEntries(patch.entries!);
-        if ("connected" in patch) setConnected(patch.connected!);
-        if ("view" in patch) setView(patch.view!);
-        if ("theme" in patch) setTheme(patch.theme!);
-        if ("fatal" in patch) setFatal(patch.fatal!);
-        if ("channel" in patch) setChannel(patch.channel!);
-      });
-    },
+    set,
     go(patch: Partial<View>, push = true): void {
-      const next = nextView(view(), patch);
+      const next = nextView(untrack(state).view, patch);
       navigate(next, push);
-      setView(next);
+      set({ view: next });
     },
-    addEntries(entries: Entry[]): void {
-      setEntries((previous) => [...previous, ...entries].slice(-400));
+    addEntries(entries: readonly Entry[]): void {
+      set({ entries: [...untrack(state).entries, ...entries].slice(-400) });
     },
   };
 }
