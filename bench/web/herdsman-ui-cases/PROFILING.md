@@ -1,5 +1,9 @@
 # Reactre mounting and cleanup
 
+For the current three-pair mounting and propagation comparison, including
+rejected experiments and measured regressions, see [TOP2-PROFILING.md](TOP2-PROFILING.md).
+The findings and runs below document the earlier compiler integration work.
+
 Both Reactre entries use the same compiled renderer. The signals entry owns its
 snapshot in a core signal; the state entry owns it in a state-machine actor. The
 workloads, fresh-snapshot contract, DOM, competitors and timing method are unchanged.

@@ -27,6 +27,10 @@ Per-lane memos retain unchanged member lists and counts. Activity bodies use
 flat templates for their possible shapes, reducing nested DOM cleanup when
 events leave the feed. Tests exercise same-key field changes, optional bodies,
 selection and disposal through the actual compiled app factory.
+The latest shared renderer uses typed row equality, stable lane projections and
+weakly cached keys for retained event rows. Log classes compile as static holes;
+empty-lane placeholders use the existing count memo. See the [paired profiles](../../TOP2-PROFILING.md)
+for improvements, tradeoffs, rejected experiments and source hashes.
 This is ordinary per-key reconciliation, permitted by the contract and also
 used by the other entries. It never compares whole snapshots, reads operation
 names, caches operation results or skips the actor transition. Tabs dispose

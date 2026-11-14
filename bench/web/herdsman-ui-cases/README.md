@@ -127,6 +127,68 @@ only claimed when supported by the complete run and its noise floor.
 ## Recorded five-iteration comparison
 
 Measured on **2026-11-14 (Asia/Dhaka)** from source
+`2c968c99dd801d30f51cbe4f0caa87df6b0c6cdc`, with Reactre pinned to
+`f0cb6cb9f7d9c9a96c25fb25ece2d54adb702c27`. This is the final shared-renderer candidate.
+Chrome 157.0.8103.78, puppeteer-core 25.16.0, and unchanged 4× CPU
+throttling where marked. All **15 implementations plus the identical
+vanillajs-lite-control**, **12 workloads**, and **5 iterations (960 samples)**
+completed. All 16 correctness gates and 192 retained-node checks passed;
+there were no invalid entries, timing errors or discarded samples. The load
+safeguard remained enabled. The control is excluded from ranks.
+
+| Rank | Implementation                  | Geometric mean of relative median times ↓ | JavaScript gzip bytes |
+| ---: | ------------------------------- | ----------------------------------------: | --------------------: |
+|    1 | Reactre core + built-in signals |                                  1.061728 |                10,552 |
+|    2 | vanillajs                       |                                  1.077724 |                 4,607 |
+|    3 | Reactre core + state            |                                  1.084408 |                11,155 |
+|    4 | vanillajs-lite                  |                                  1.100668 |                 4,831 |
+|    5 | sonnet                          |                                  1.123512 |                 4,659 |
+|    6 | preact                          |                                  1.133704 |                 7,494 |
+|    7 | doohtml-dp                      |                                  1.136785 |                 5,812 |
+|    8 | thane                           |                                  1.172550 |                 8,063 |
+|    9 | re                              |                                  1.177906 |                 7,260 |
+|   10 | solid                           |                                  1.195415 |                10,037 |
+|   11 | vue                             |                                  1.212230 |                25,743 |
+|   12 | vue-vapor                       |                                  1.221141 |                32,021 |
+|   13 | preact-signals                  |                                  1.273999 |                11,792 |
+|   14 | solid-2                         |                                  1.324648 |                27,527 |
+|   15 | react                           |                                  1.476775 |                69,710 |
+
+Core + signals ranks **1/15** and core + state **3/15**. Their composite times
+are **9.86%** and **7.94%** lower than `re` in this run.
+**The target of both Reactre entries in the top two was not met.**
+
+The identical-build A/A gap is **3.995% (4.00% rounded)**. State needs only a
+0.62% reduction to match second place, well below this control gap. The top
+four scores span just 3.67%; the run does not establish a repeatable ordering
+among them, or prove that signals is the fastest. Do not label state second
+or treat a small ranking change as a demonstrated gain.
+
+[Full workload table, retained nodes, sizes and raw provenance](TOP2-RESULTS.md).
+[Three paired CPU-profile comparisons, including regressions](TOP2-PROFILING.md).
+The [first candidate's complete run](TOP2-FIRST-RESULTS.md), which ranked state
+third and signals fifth, is retained separately. No timing samples were removed
+and the final code was measured once; there was no rerun to obtain a better rank.
+
+Raw output remains under ignored `results/2026-11-13T23-46-45-189Z.json` and `.md`.
+Reproduce with `bun build.ts`, then `bun run.ts --iterations 5` at the source
+revision above. Competitors, workloads, gates, throttling and load safeguards
+were unchanged. A full 16-iteration timing-position rotation would be a stronger
+follow-up to this noisy five-iteration ranking.
+
+The optimizations retain native keyed rows, compare typed fields, reuse derived
+lane arrays and event keys, remove per-log-line observers, and remove two
+redundant snapshot memos per entry. They preserve every actor transition and
+view disposal. Gzip sizes increase by 83 bytes for signals and 82 for state
+relative to the vendor-only revision. Paired diagnostics show consistent gains
+in Team mounting and event/burst propagation, with mixed results elsewhere.
+They measure synchronous script work, not the benchmark's commit-time metric.
+Independently normalized scores from separate runs are not a causal before/after
+comparison, and microbenchmark improvements do not guarantee a framework rank.
+
+## Previous five-iteration comparison (vendor update)
+
+Measured on **2026-11-14 (Asia/Dhaka)** from source
 `1da043c334b32a928399f0733585ddd5249db475`, with Reactre pinned to
 `f0cb6cb9f7d9c9a96c25fb25ece2d54adb702c27` (upstream PRs #2–#6).
 Chrome 157.0.8103.78, puppeteer-core 25.16.0, and the unchanged

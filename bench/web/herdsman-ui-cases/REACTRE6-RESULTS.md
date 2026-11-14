@@ -12,7 +12,7 @@ between the Reactre entries does not establish a repeatable ordering.
 Raw JSON: `results/2026-11-13T20-19-15-609Z.json` (ignored generated output).
 SHA-256: `f39ea4cea206b3e557b069db155cc08b950c7df3b7eec11b17a95f6ed2b0a86f`.
 The tables below are the runner's report, with documentation formatting only.
-See [the leaderboard and interpretation](README.md#recorded-five-iteration-comparison).
+See [the leaderboard and interpretation](README.md#previous-five-iteration-comparison-vendor-update).
 This is not a paired comparison against the preceding vendor revision.
 
 ## herdsman-cases, 2026-11-13T20:19:15.609Z

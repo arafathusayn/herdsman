@@ -1,0 +1,657 @@
+{
+  "baseline": "fbd7b60dbc6a7e88b9cfe886718e2e2780732594",
+  "candidate": "8e28bc1628864a377deb4622fe23673bb8fc9671",
+  "upstream": "f0cb6cb9f7d9c9a96c25fb25ece2d54adb702c27",
+  "units": "mean synchronous ms per target click within each 300-cycle profile",
+  "order": ["base/candidate", "candidate/base", "base/candidate"],
+  "runs": [
+    {
+      "label": "top2-pair-1-base",
+      "sha256": "e2de4057e811fad358859bef81aafded89207217d972f633e99ccf2a4073be0b",
+      "metadata": {
+        "chrome": "Chrome/157.0.8103.78",
+        "mode": "all",
+        "cycles": 300,
+        "warmup": 30,
+        "cpuThrottle": 1,
+        "samplingIntervalUs": 100,
+        "sources": {
+          "shared/reactre/view.tsx": "4d7c68dc76faa7bf9cd0b9aebd9342ba33a3faf3b93cdea056ae0b5fc24cfe40",
+          "shared/reactre/rows.ts": "6e55a86961e27d36e091aee499b51a2cd4c95d66ccfe8aa05d912364b880c4bc"
+        },
+        "bundles": {
+          "reactre-signals": "67bb1c786b8d496c1c9a25b65169de39aab958cdd7d4b2cfa1a5431fdc725bd1",
+          "reactre-state": "033eba28d5176cb8c3d55ad64f4ce1f26eefbb920bb9359abe96f215d55a3ebe"
+        }
+      }
+    },
+    {
+      "label": "top2-pair-1-candidate",
+      "sha256": "1695897cf5d5901184fb58cd4146ba7d7abc3548f28d35e78b0d1bcc98cd7caf",
+      "metadata": {
+        "chrome": "Chrome/157.0.8103.78",
+        "mode": "all",
+        "cycles": 300,
+        "warmup": 30,
+        "cpuThrottle": 1,
+        "samplingIntervalUs": 100,
+        "sources": {
+          "shared/reactre/view.tsx": "62d5113ba4f6fc85e91c94f02d308b9bc404bde406812d4dad742db3df876e85",
+          "shared/reactre/rows.ts": "af99cf16914630b4bd52a47c870565a2c2ffc0528a15159fc03b174715a90fb0"
+        },
+        "bundles": {
+          "reactre-signals": "cf78de4911961ce81b41674fcc2668acc0f502c268629a612c22d4816417e08f",
+          "reactre-state": "9dd8f2f3ae66dea2c94c8ad1d1f414a674e39ddaf28cfc1e6f050c2b8849db35"
+        }
+      }
+    },
+    {
+      "label": "top2-pair-2-base",
+      "sha256": "4f16c18ff58e93319992ce9968aec5dff863124b1a374aec885ead1966d81f66",
+      "metadata": {
+        "chrome": "Chrome/157.0.8103.78",
+        "mode": "all",
+        "cycles": 300,
+        "warmup": 30,
+        "cpuThrottle": 1,
+        "samplingIntervalUs": 100,
+        "sources": {
+          "shared/reactre/view.tsx": "4d7c68dc76faa7bf9cd0b9aebd9342ba33a3faf3b93cdea056ae0b5fc24cfe40",
+          "shared/reactre/rows.ts": "6e55a86961e27d36e091aee499b51a2cd4c95d66ccfe8aa05d912364b880c4bc"
+        },
+        "bundles": {
+          "reactre-signals": "67bb1c786b8d496c1c9a25b65169de39aab958cdd7d4b2cfa1a5431fdc725bd1",
+          "reactre-state": "033eba28d5176cb8c3d55ad64f4ce1f26eefbb920bb9359abe96f215d55a3ebe"
+        }
+      }
+    },
+    {
+      "label": "top2-pair-2-candidate",
+      "sha256": "660e6ae9d7954cddce768f9abe247545c3ee1f5b6f7d5a4b9e4017d6561a9aef",
+      "metadata": {
+        "chrome": "Chrome/157.0.8103.78",
+        "mode": "all",
+        "cycles": 300,
+        "warmup": 30,
+        "cpuThrottle": 1,
+        "samplingIntervalUs": 100,
+        "sources": {
+          "shared/reactre/view.tsx": "62d5113ba4f6fc85e91c94f02d308b9bc404bde406812d4dad742db3df876e85",
+          "shared/reactre/rows.ts": "af99cf16914630b4bd52a47c870565a2c2ffc0528a15159fc03b174715a90fb0"
+        },
+        "bundles": {
+          "reactre-signals": "cf78de4911961ce81b41674fcc2668acc0f502c268629a612c22d4816417e08f",
+          "reactre-state": "9dd8f2f3ae66dea2c94c8ad1d1f414a674e39ddaf28cfc1e6f050c2b8849db35"
+        }
+      }
+    },
+    {
+      "label": "top2-pair-3-base",
+      "sha256": "a407a94f84c42065ac0b94b2f661075c42a6572c582632fd99977b501bc477cd",
+      "metadata": {
+        "chrome": "Chrome/157.0.8103.78",
+        "mode": "all",
+        "cycles": 300,
+        "warmup": 30,
+        "cpuThrottle": 1,
+        "samplingIntervalUs": 100,
+        "sources": {
+          "shared/reactre/view.tsx": "4d7c68dc76faa7bf9cd0b9aebd9342ba33a3faf3b93cdea056ae0b5fc24cfe40",
+          "shared/reactre/rows.ts": "6e55a86961e27d36e091aee499b51a2cd4c95d66ccfe8aa05d912364b880c4bc"
+        },
+        "bundles": {
+          "reactre-signals": "67bb1c786b8d496c1c9a25b65169de39aab958cdd7d4b2cfa1a5431fdc725bd1",
+          "reactre-state": "033eba28d5176cb8c3d55ad64f4ce1f26eefbb920bb9359abe96f215d55a3ebe"
+        }
+      }
+    },
+    {
+      "label": "top2-pair-3-candidate",
+      "sha256": "1703656de7d38017eb5dcf4ccc14ba70c69b93b77ec7955912e0a56e3a21cad5",
+      "metadata": {
+        "chrome": "Chrome/157.0.8103.78",
+        "mode": "all",
+        "cycles": 300,
+        "warmup": 30,
+        "cpuThrottle": 1,
+        "samplingIntervalUs": 100,
+        "sources": {
+          "shared/reactre/view.tsx": "62d5113ba4f6fc85e91c94f02d308b9bc404bde406812d4dad742db3df876e85",
+          "shared/reactre/rows.ts": "af99cf16914630b4bd52a47c870565a2c2ffc0528a15159fc03b174715a90fb0"
+        },
+        "bundles": {
+          "reactre-signals": "cf78de4911961ce81b41674fcc2668acc0f502c268629a612c22d4816417e08f",
+          "reactre-state": "9dd8f2f3ae66dea2c94c8ad1d1f414a674e39ddaf28cfc1e6f050c2b8849db35"
+        }
+      }
+    }
+  ],
+  "samples": [
+    {
+      "app": "reactre-signals",
+      "case": "team",
+      "base": [0.32333332975705464, 0.32233333269755043, 0.3189999981721242],
+      "candidate": [
+        0.30333333055178324, 0.31699999928474426, 0.3003333322207133
+      ],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "reactre-signals",
+      "case": "checklist",
+      "base": [0.23366666475931802, 0.20833332975705465, 0.22466666698455812],
+      "candidate": [
+        0.21833333651224773, 0.209333332379659, 0.19833333492279054
+      ],
+      "nodes": 312,
+      "canonicalSha256": "a93c20ab4b819ead399c8c45b8805848a110018fdbe37809d808d9cbe21d17f5"
+    },
+    {
+      "app": "reactre-signals",
+      "case": "activity",
+      "base": [0.42266666571299233, 0.40766666571299237, 0.41566666642824807],
+      "candidate": [
+        0.42266666650772095, 0.41666666706403094, 0.39799999912579853
+      ],
+      "nodes": 1122,
+      "canonicalSha256": "ed516fca276c76b296d49c0a80bc8db2d80c833286a48ae90eec720f707ef942"
+    },
+    {
+      "app": "reactre-signals",
+      "case": "log",
+      "base": [0.26766666730244953, 0.26566667715708414, 0.28000001271565755],
+      "candidate": [
+        0.2579999887943268, 0.25999998768170673, 0.2559999986489614
+      ],
+      "nodes": 901,
+      "canonicalSha256": "f3072b2f5aee2271c439cf30a317cd701f51338ed6c1f83f9d2f30dae927a4e0"
+    },
+    {
+      "app": "reactre-signals",
+      "case": "poll",
+      "base": [0.0899999996026357, 0.08899999976158142, 0.0903333334128062],
+      "candidate": [
+        0.08666666666666667, 0.08633333325386047, 0.08566666682561239
+      ],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "reactre-signals",
+      "case": "status",
+      "base": [0.10166666666666667, 0.1, 0.10099999984105427],
+      "candidate": [
+        0.09666666666666666, 0.09566666682561238, 0.09566666642824809
+      ],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "reactre-signals",
+      "case": "select",
+      "base": [0.09333333333333334, 0.09099999984105428, 0.09100000023841857],
+      "candidate": [
+        0.08866666674613953, 0.08733333309491476, 0.08666666626930236
+      ],
+      "nodes": 363,
+      "canonicalSha256": "9948b5938b10525775ff9ab145d382c190fd23447e6b38f02e8e09ab540f0ab1"
+    },
+    {
+      "app": "reactre-signals",
+      "case": "toggle",
+      "base": [0.09700000007947286, 0.09666666666666666, 0.09966666658719381],
+      "candidate": [0.09199999968210856, 0.09, 0.08933333357175191],
+      "nodes": 312,
+      "canonicalSha256": "a93c20ab4b819ead399c8c45b8805848a110018fdbe37809d808d9cbe21d17f5"
+    },
+    {
+      "app": "reactre-signals",
+      "case": "event",
+      "base": [0.20200000007947286, 0.20166666666666666, 0.20333333333333334],
+      "candidate": [
+        0.16966666658719382, 0.16666666666666666, 0.1653333334128062
+      ],
+      "nodes": 1122,
+      "canonicalSha256": "9ec2433dcd58e720e972a599af92fcb559cfbe68b0d53342ff7d7384841eab68"
+    },
+    {
+      "app": "reactre-signals",
+      "case": "burst",
+      "base": [0.24866666674613952, 0.2446666669845581, 0.24866666674613952],
+      "candidate": [0.2196666665871938, 0.215, 0.21266666650772095],
+      "nodes": 1122,
+      "canonicalSha256": "c6dec654bff42f3442683a9fefa566d82598b16f12af6c76c7e7a7de1a7a85e8"
+    },
+    {
+      "app": "reactre-signals",
+      "case": "logline",
+      "base": [0.18799999992052713, 0.1943333331743876, 0.1853333330154419],
+      "candidate": [
+        0.20733333349227906, 0.1953333334128062, 0.19333333333333333
+      ],
+      "nodes": 1891,
+      "canonicalSha256": "d745ceb65a46d60414d9da6635d4e0687de52cb4c9c8df6960541cc1adcf1d0b"
+    },
+    {
+      "app": "reactre-state",
+      "case": "team",
+      "base": [0.3223333350817362, 0.32133333524068197, 0.32666666825612384],
+      "candidate": [0.29800000071525573, 0.294666664203008, 0.2979999999205271],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "reactre-state",
+      "case": "checklist",
+      "base": [0.2300000011920929, 0.21966666976610819, 0.21633333086967468],
+      "candidate": [
+        0.22233333508173625, 0.2336666754881541, 0.21200000127156576
+      ],
+      "nodes": 312,
+      "canonicalSha256": "a93c20ab4b819ead399c8c45b8805848a110018fdbe37809d808d9cbe21d17f5"
+    },
+    {
+      "app": "reactre-state",
+      "case": "activity",
+      "base": [0.41666666706403094, 0.40566666682561237, 0.41099999944369],
+      "candidate": [
+        0.42866666316986085, 0.42133333047231036, 0.40666666785875955
+      ],
+      "nodes": 1122,
+      "canonicalSha256": "ed516fca276c76b296d49c0a80bc8db2d80c833286a48ae90eec720f707ef942"
+    },
+    {
+      "app": "reactre-state",
+      "case": "log",
+      "base": [0.2686666778723399, 0.276333327293396, 0.250666659673055],
+      "candidate": [
+        0.2456666624546051, 0.25733333150545756, 0.2546666502952576
+      ],
+      "nodes": 901,
+      "canonicalSha256": "f3072b2f5aee2271c439cf30a317cd701f51338ed6c1f83f9d2f30dae927a4e0"
+    },
+    {
+      "app": "reactre-state",
+      "case": "poll",
+      "base": [0.09, 0.10333333333333333, 0.08700000007947285],
+      "candidate": [
+        0.08799999992052714, 0.08866666674613953, 0.08633333325386047
+      ],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "reactre-state",
+      "case": "status",
+      "base": [0.10133333365122477, 0.10200000007947287, 0.09966666658719381],
+      "candidate": [0.09766666690508524, 0.1, 0.09533333301544189],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "reactre-state",
+      "case": "select",
+      "base": [0.09233333349227905, 0.09266666650772094, 0.0903333334128062],
+      "candidate": [0.09, 0.0903333334128062, 0.08733333349227905],
+      "nodes": 363,
+      "canonicalSha256": "9948b5938b10525775ff9ab145d382c190fd23447e6b38f02e8e09ab540f0ab1"
+    },
+    {
+      "app": "reactre-state",
+      "case": "toggle",
+      "base": [0.09766666650772095, 0.09866666634877523, 0.09666666666666666],
+      "candidate": [0.09199999968210856, 0.09133333325386048, 0.09],
+      "nodes": 312,
+      "canonicalSha256": "a93c20ab4b819ead399c8c45b8805848a110018fdbe37809d808d9cbe21d17f5"
+    },
+    {
+      "app": "reactre-state",
+      "case": "event",
+      "base": [0.20133333325386046, 0.1963333332538605, 0.19866666674613953],
+      "candidate": [
+        0.16766666690508525, 0.16799999992052714, 0.16633333365122477
+      ],
+      "nodes": 1122,
+      "canonicalSha256": "9ec2433dcd58e720e972a599af92fcb559cfbe68b0d53342ff7d7384841eab68"
+    },
+    {
+      "app": "reactre-state",
+      "case": "burst",
+      "base": [0.24599999984105428, 0.2496666665871938, 0.24],
+      "candidate": [
+        0.21900000015894572, 0.21933333357175192, 0.2146666665871938
+      ],
+      "nodes": 1122,
+      "canonicalSha256": "c6dec654bff42f3442683a9fefa566d82598b16f12af6c76c7e7a7de1a7a85e8"
+    },
+    {
+      "app": "reactre-state",
+      "case": "logline",
+      "base": [0.19200000007947285, 0.19200000007947285, 0.22366666634877522],
+      "candidate": [0.19833333333333333, 0.19833333333333333, 0.195],
+      "nodes": 1891,
+      "canonicalSha256": "d745ceb65a46d60414d9da6635d4e0687de52cb4c9c8df6960541cc1adcf1d0b"
+    },
+    {
+      "app": "vanillajs-lite",
+      "case": "team",
+      "base": [0.19333332975705464, 0.19666666269302369, 0.19100000222524008],
+      "candidate": [
+        0.20366666158040364, 0.20933333079020183, 0.2016666599114736
+      ],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "vanillajs-lite",
+      "case": "checklist",
+      "base": [0.14566666762034097, 0.14366666396458944, 0.14666666905085246],
+      "candidate": [
+        0.151333331267039, 0.15099999864896138, 0.14633333484331768
+      ],
+      "nodes": 312,
+      "canonicalSha256": "a93c20ab4b819ead399c8c45b8805848a110018fdbe37809d808d9cbe21d17f5"
+    },
+    {
+      "app": "vanillajs-lite",
+      "case": "activity",
+      "base": [0.2949999988079071, 0.29299999554951983, 0.3050000003973643],
+      "candidate": [
+        0.30666667024294536, 0.2889999973773956, 0.31200000445048015
+      ],
+      "nodes": 1122,
+      "canonicalSha256": "ed516fca276c76b296d49c0a80bc8db2d80c833286a48ae90eec720f707ef942"
+    },
+    {
+      "app": "vanillajs-lite",
+      "case": "log",
+      "base": [0.22666666626930237, 0.23333333452542623, 0.23366666555404664],
+      "candidate": [
+        0.2386666691303253, 0.22666666626930237, 0.23333333094914754
+      ],
+      "nodes": 901,
+      "canonicalSha256": "f3072b2f5aee2271c439cf30a317cd701f51338ed6c1f83f9d2f30dae927a4e0"
+    },
+    {
+      "app": "vanillajs-lite",
+      "case": "poll",
+      "base": [0.08933333317438762, 0.09633333325386047, 0.08966666658719381],
+      "candidate": [0.09, 0.0900000003973643, 0.09199999968210856],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "vanillajs-lite",
+      "case": "status",
+      "base": [0.09066666682561239, 0.09400000015894572, 0.09133333325386048],
+      "candidate": [
+        0.09233333309491476, 0.09200000007947286, 0.09433333317438762
+      ],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "vanillajs-lite",
+      "case": "select",
+      "base": [0.09233333349227905, 0.09433333317438762, 0.09066666642824808],
+      "candidate": [
+        0.09199999968210856, 0.09099999984105428, 0.09133333325386048
+      ],
+      "nodes": 363,
+      "canonicalSha256": "9948b5938b10525775ff9ab145d382c190fd23447e6b38f02e8e09ab540f0ab1"
+    },
+    {
+      "app": "vanillajs-lite",
+      "case": "toggle",
+      "base": [0.08466666658719381, 0.08666666666666667, 0.08466666658719381],
+      "candidate": [
+        0.0853333338101705, 0.08466666658719381, 0.08866666674613953
+      ],
+      "nodes": 312,
+      "canonicalSha256": "a93c20ab4b819ead399c8c45b8805848a110018fdbe37809d808d9cbe21d17f5"
+    },
+    {
+      "app": "vanillajs-lite",
+      "case": "event",
+      "base": [0.15333333333333332, 0.15366666674613952, 0.15066666642824808],
+      "candidate": [0.15333333333333332, 0.15100000023841859, 0.15],
+      "nodes": 1122,
+      "canonicalSha256": "9ec2433dcd58e720e972a599af92fcb559cfbe68b0d53342ff7d7384841eab68"
+    },
+    {
+      "app": "vanillajs-lite",
+      "case": "burst",
+      "base": [0.1793333335717519, 0.18266666650772095, 0.17733333309491475],
+      "candidate": [
+        0.18233333309491476, 0.1806666668256124, 0.17766666650772095
+      ],
+      "nodes": 1122,
+      "canonicalSha256": "c6dec654bff42f3442683a9fefa566d82598b16f12af6c76c7e7a7de1a7a85e8"
+    },
+    {
+      "app": "vanillajs-lite",
+      "case": "logline",
+      "base": [0.18299999992052715, 0.18366666674613952, 0.18233333349227906],
+      "candidate": [
+        0.1853333334128062, 0.18166666666666667, 0.17899999976158143
+      ],
+      "nodes": 1891,
+      "canonicalSha256": "d745ceb65a46d60414d9da6635d4e0687de52cb4c9c8df6960541cc1adcf1d0b"
+    },
+    {
+      "app": "sonnet",
+      "case": "team",
+      "base": [0.29266666491826376, 0.29833333333333334, 0.281666667064031],
+      "candidate": [
+        0.2793333335717519, 0.27733333071072896, 0.2893333319822947
+      ],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "sonnet",
+      "case": "checklist",
+      "base": [0.24333333373069763, 0.22699999888737996, 0.23933332999547322],
+      "candidate": [
+        0.24199999690055848, 0.22299999912579854, 0.21700000206629436
+      ],
+      "nodes": 312,
+      "canonicalSha256": "a93c20ab4b819ead399c8c45b8805848a110018fdbe37809d808d9cbe21d17f5"
+    },
+    {
+      "app": "sonnet",
+      "case": "activity",
+      "base": [0.4430000015099843, 0.4549999984105428, 0.4379999995231628],
+      "candidate": [
+        0.44300000071525575, 0.44799999872843427, 0.44733333428700767
+      ],
+      "nodes": 1122,
+      "canonicalSha256": "ed516fca276c76b296d49c0a80bc8db2d80c833286a48ae90eec720f707ef942"
+    },
+    {
+      "app": "sonnet",
+      "case": "log",
+      "base": [0.3800000007947286, 0.3930000015099843, 0.38200000166893006],
+      "candidate": [
+        0.3776666673024495, 0.37933333158493043, 0.3796666653951009
+      ],
+      "nodes": 901,
+      "canonicalSha256": "f3072b2f5aee2271c439cf30a317cd701f51338ed6c1f83f9d2f30dae927a4e0"
+    },
+    {
+      "app": "sonnet",
+      "case": "poll",
+      "base": [0.09799999992052714, 0.09599999984105428, 0.09733333309491475],
+      "candidate": [
+        0.09833333333333333, 0.09666666666666666, 0.0946666665871938
+      ],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "sonnet",
+      "case": "status",
+      "base": [0.10299999992052714, 0.10200000047683716, 0.10133333325386047],
+      "candidate": [
+        0.10100000023841858, 0.10066666682561239, 0.10033333341280619
+      ],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "sonnet",
+      "case": "select",
+      "base": [0.09666666666666666, 0.09666666666666666, 0.09700000007947286],
+      "candidate": [
+        0.09866666674613953, 0.09733333309491475, 0.09633333325386047
+      ],
+      "nodes": 363,
+      "canonicalSha256": "9948b5938b10525775ff9ab145d382c190fd23447e6b38f02e8e09ab540f0ab1"
+    },
+    {
+      "app": "sonnet",
+      "case": "toggle",
+      "base": [0.0946666665871938, 0.09433333357175192, 0.09600000023841858],
+      "candidate": [
+        0.09633333365122478, 0.09599999984105428, 0.09333333333333334
+      ],
+      "nodes": 312,
+      "canonicalSha256": "a93c20ab4b819ead399c8c45b8805848a110018fdbe37809d808d9cbe21d17f5"
+    },
+    {
+      "app": "sonnet",
+      "case": "event",
+      "base": [0.16633333325386046, 0.1646666665871938, 0.16366666674613953],
+      "candidate": [0.16833333333333333, 0.165, 0.16566666682561237],
+      "nodes": 1122,
+      "canonicalSha256": "9ec2433dcd58e720e972a599af92fcb559cfbe68b0d53342ff7d7384841eab68"
+    },
+    {
+      "app": "sonnet",
+      "case": "burst",
+      "base": [0.2106666668256124, 0.2096666665871938, 0.20666666666666667],
+      "candidate": [
+        0.21166666666666667, 0.2090000001589457, 0.20766666650772095
+      ],
+      "nodes": 1122,
+      "canonicalSha256": "c6dec654bff42f3442683a9fefa566d82598b16f12af6c76c7e7a7de1a7a85e8"
+    },
+    {
+      "app": "sonnet",
+      "case": "logline",
+      "base": [0.2096666665871938, 0.20566666642824807, 0.20566666682561238],
+      "candidate": [
+        0.20866666674613954, 0.20700000007947286, 0.20399999976158142
+      ],
+      "nodes": 1891,
+      "canonicalSha256": "d745ceb65a46d60414d9da6635d4e0687de52cb4c9c8df6960541cc1adcf1d0b"
+    },
+    {
+      "app": "doohtml-dp",
+      "case": "team",
+      "base": [0.2603333361943563, 0.26799999435742694, 0.2536666667461395],
+      "candidate": [
+        0.26200000127156575, 0.27266666412353513, 0.25899999976158145
+      ],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "doohtml-dp",
+      "case": "checklist",
+      "base": [0.213666672706604, 0.2049999992052714, 0.21366666714350382],
+      "candidate": [
+        0.21199999968210856, 0.2106666684150696, 0.2096666677792867
+      ],
+      "nodes": 312,
+      "canonicalSha256": "a93c20ab4b819ead399c8c45b8805848a110018fdbe37809d808d9cbe21d17f5"
+    },
+    {
+      "app": "doohtml-dp",
+      "case": "activity",
+      "base": [0.5043333319822947, 0.4793333295981089, 0.5043333339691162],
+      "candidate": [0.5199999992052714, 0.5063333344459534, 0.5006666644414266],
+      "nodes": 1122,
+      "canonicalSha256": "ed516fca276c76b296d49c0a80bc8db2d80c833286a48ae90eec720f707ef942"
+    },
+    {
+      "app": "doohtml-dp",
+      "case": "log",
+      "base": [0.3950000011920929, 0.3900000003973643, 0.3873333319028219],
+      "candidate": [
+        0.39733333508173624, 0.39333333174387614, 0.3850000019868215
+      ],
+      "nodes": 901,
+      "canonicalSha256": "f3072b2f5aee2271c439cf30a317cd701f51338ed6c1f83f9d2f30dae927a4e0"
+    },
+    {
+      "app": "doohtml-dp",
+      "case": "poll",
+      "base": [0.09833333333333333, 0.09566666682561238, 0.09566666642824809],
+      "candidate": [
+        0.09799999992052714, 0.09699999968210857, 0.0953333334128062
+      ],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "doohtml-dp",
+      "case": "status",
+      "base": [0.10166666706403096, 0.10166666666666667, 0.10099999984105427],
+      "candidate": [
+        0.1053333334128062, 0.10200000007947287, 0.10199999968210856
+      ],
+      "nodes": 363,
+      "canonicalSha256": "776d27a6fb20480085e17d3afd1733ac5f0a66702d36bc0733aed52469f692d1"
+    },
+    {
+      "app": "doohtml-dp",
+      "case": "select",
+      "base": [0.09733333349227906, 0.09700000007947286, 0.0946666665871938],
+      "candidate": [
+        0.0993333335717519, 0.09633333325386047, 0.0946666665871938
+      ],
+      "nodes": 363,
+      "canonicalSha256": "9948b5938b10525775ff9ab145d382c190fd23447e6b38f02e8e09ab540f0ab1"
+    },
+    {
+      "app": "doohtml-dp",
+      "case": "toggle",
+      "base": [0.09666666666666666, 0.09433333357175192, 0.09333333333333334],
+      "candidate": [
+        0.10099999984105427, 0.09400000015894572, 0.09300000031789143
+      ],
+      "nodes": 312,
+      "canonicalSha256": "a93c20ab4b819ead399c8c45b8805848a110018fdbe37809d808d9cbe21d17f5"
+    },
+    {
+      "app": "doohtml-dp",
+      "case": "event",
+      "base": [0.16733333309491474, 0.16766666650772094, 0.16400000015894572],
+      "candidate": [0.17200000007947286, 0.16700000007947285, 0.16400000055631],
+      "nodes": 1122,
+      "canonicalSha256": "9ec2433dcd58e720e972a599af92fcb559cfbe68b0d53342ff7d7384841eab68"
+    },
+    {
+      "app": "doohtml-dp",
+      "case": "burst",
+      "base": [0.21133333325386047, 0.21299999992052715, 0.20566666642824807],
+      "candidate": [
+        0.21333333333333335, 0.21199999968210856, 0.20899999976158143
+      ],
+      "nodes": 1122,
+      "canonicalSha256": "c6dec654bff42f3442683a9fefa566d82598b16f12af6c76c7e7a7de1a7a85e8"
+    },
+    {
+      "app": "doohtml-dp",
+      "case": "logline",
+      "base": [0.22600000023841857, 0.20600000023841858, 0.20266666650772094],
+      "candidate": [
+        0.2090000001589457, 0.2096666665871938, 0.20666666666666667
+      ],
+      "nodes": 1891,
+      "canonicalSha256": "d745ceb65a46d60414d9da6635d4e0687de52cb4c9c8df6960541cc1adcf1d0b"
+    }
+  ]
+}
